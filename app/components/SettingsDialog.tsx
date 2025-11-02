@@ -61,6 +61,12 @@ export default function SettingsDialog({ open, onClose, tasks, dispatch }: Setti
     }
   };
 
+  const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const text = event.clipboardData.getData('text/plain');
+    setImportText(text);
+  };
+
   const handleImport = () => {
     const lines = importText.split('\n');
     const prefixes = [':task-todo:', ':task-doing:'];
@@ -72,12 +78,12 @@ export default function SettingsDialog({ open, onClose, tasks, dispatch }: Setti
           if (taskName) {
             dispatch({ type: 'ADD_PLANNED_TASK', payload: taskName });
           }
-          break; // Once a prefix matches, move to the next line
+          break;
         }
       }
     });
     setImportText('');
-    onClose(); // インポート後にダイアログを閉じる
+    onClose();
   };
 
   return (
@@ -146,12 +152,13 @@ export default function SettingsDialog({ open, onClose, tasks, dispatch }: Setti
         <TextField
           label=":task-todo: や :task-doing: で始まるタスクリストを貼り付け"
           multiline
-          rows={4}
+          rows={8}
           fullWidth
           value={importText}
-          onChange={(e) => setImportText(e.target.value)}
+          onPaste={handlePaste}
+          onChange={(e) => setImportText(e.target.value)} // この行を追加
           variant="outlined"
-          sx={{ mt: 2 }}
+          sx={{ mt: 2, "& .MuiInputBase-input": { whiteSpace: "pre-wrap" } }}
         />
         <Button variant="contained" onClick={handleImport} sx={{ mt: 2 }}>
           インポート実行
