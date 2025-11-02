@@ -146,9 +146,13 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       const newQuickId = getNewId();
       const newQuickTask: TimedTaskItem = { id: newQuickId, name: quickTaskName, type: 'task', elapsedTime: 0, parentId };
       const durationForQuickAdd = action.payload.switchTime - state.sessionStartTime;
-      const tasksWithOldTime = state.tasks.map(task =>
-        task.id === state.activeTaskId ? { ...task, elapsedTime: task.elapsedTime + durationForQuickAdd } : task
-      );
+      const tasksWithOldTime = state.tasks.map(task => {
+      if (task.id === state.activeTaskId && task.type === 'task') {
+        // ✅ このブロック内では task が TimedTaskItem であることが保証される
+        return { ...task, elapsedTime: task.elapsedTime + durationForQuickAdd };
+      }
+        return task;
+      });
       return { ...state, tasks: [...tasksWithOldTime, newQuickTask], activeTaskId: newQuickId, sessionStartTime: action.payload.switchTime };
     case 'ADJUST_TIME':
       return { ...state, tasks: state.tasks.map(task => task.id === action.payload.taskId && task.type === 'task' ? { ...task, elapsedTime: Math.max(0, task.elapsedTime + action.payload.amount) } : task) };
