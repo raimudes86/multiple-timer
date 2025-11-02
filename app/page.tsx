@@ -117,9 +117,12 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       // Update elapsed time for the previously active task if it was a 'task' type
       if (currentActiveTask && currentActiveTask.type === 'task') {
         const duration = action.payload.switchTime - state.sessionStartTime;
-        tasksAfterSwitch = state.tasks.map(task =>
-          task.id === state.activeTaskId ? { ...task, elapsedTime: task.elapsedTime + duration } : task
-        );
+        tasksAfterSwitch = state.tasks.map(task =>{
+          if (task.id === state.activeTaskId && task.type === 'task'){
+            return { ...task, elapsedTime: task.elapsedTime + duration }
+          }
+          return task;
+      });
       }
 
       return { ...state, tasks: tasksAfterSwitch, activeTaskId: action.payload.newTaskId, sessionStartTime: action.payload.switchTime };
