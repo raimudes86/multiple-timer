@@ -27,25 +27,25 @@ import BoltIcon from '@mui/icons-material/Bolt';
 interface Task {
   id: number;
   name: string;
-  elapsedTime: number;
+  elapsedTime: number; // これまでに記録された合計時間 (ミリ秒)
   isTemplate: boolean;
 }
 
 interface AppState {
   tasks: Task[];
   activeTaskId: number;
+  sessionStartTime: number; // 現在のタスクの計測開始時刻 (Date.now())
   editingTaskId: number | null;
 }
 
 type AppAction =
   | { type: 'LOAD_STATE'; payload: Partial<AppState> }
   | { type: 'START_NEW_DAY' }
-  | { type: 'SWITCH_TASK'; payload: number }
-  | { type: 'TICK' }
+  | { type: 'SWITCH_TASK'; payload: { newTaskId: number; switchTime: number } }
   | { type: 'START_EDIT'; payload: number }
   | { type: 'UPDATE_TASK_NAME'; payload: { id: number; newName: string } }
   | { type: 'ADD_PLANNED_TASK'; payload: string }
-  | { type: 'ADD_QUICK_TASK' }
+  | { type: 'ADD_QUICK_TASK'; payload: { switchTime: number } }
   | { type: 'ADJUST_TIME'; payload: { taskId: number; amount: number } };
 
 const initialTemplateTasks: Task[] = [
@@ -57,6 +57,7 @@ const initialTemplateTasks: Task[] = [
 const initialState: AppState = {
   tasks: initialTemplateTasks,
   activeTaskId: 1,
+  sessionStartTime: Date.now(),
   editingTaskId: null,
 };
 
@@ -66,28 +67,17 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       return { ...state, ...action.payload, editingTaskId: null };
     case 'START_NEW_DAY':
       const resetTemplateTasks = initialTemplateTasks.map(t => ({ ...t, elapsedTime: 0 }));
-      return { ...initialState, tasks: resetTemplateTasks };
+      return { ...initialState, tasks: resetTemplateTasks, sessionStartTime: Date.now() };
     case 'SWITCH_TASK':
-      return state.editingTaskId ? state : { ...state, activeTaskId: action.payload };
-    case 'TICK':
-      // 編集中はタイマーを進めない
-      if (state.editingTaskId) return state;
-      return {
-        ...state,
-        tasks: state.tasks.map(task =>
-          task.id === state.activeTaskId ? { ...task, elapsedTime: task.elapsedTime + 1 } : task
-        ),
-      };
+      const duration = action.payload.switchTime - state.sessionStartTime;
+      const updatedTasks = state.tasks.map(task =>
+        task.id === state.activeTaskId ? { ...task, elapsedTime: task.elapsedTime + duration } : task
+      );
+      return { ...state, tasks: updatedTasks, activeTaskId: action.payload.newTaskId, sessionStartTime: action.payload.switchTime };
     case 'START_EDIT':
       return { ...state, editingTaskId: action.payload };
     case 'UPDATE_TASK_NAME':
-      return {
-        ...state,
-        editingTaskId: null,
-        tasks: state.tasks.map(task =>
-          task.id === action.payload.id ? { ...task, name: action.payload.newName } : task
-        ),
-      };
+      return { ...state, editingTaskId: null, tasks: state.tasks.map(task => task.id === action.payload.id ? { ...task, name: action.payload.newName } : task) };
     case 'ADD_PLANNED_TASK':
       const newPlannedId = (state.tasks.length > 0 ? Math.max(...state.tasks.map(t => t.id)) : 0) + 1;
       const newPlannedTask: Task = { id: newPlannedId, name: action.payload, elapsedTime: 0, isTemplate: false };
@@ -96,22 +86,20 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       const quickTaskName = `臨時タスク ${state.tasks.filter(t => t.name.startsWith('臨時タスク')).length + 1}`;
       const newQuickId = (state.tasks.length > 0 ? Math.max(...state.tasks.map(t => t.id)) : 0) + 1;
       const newQuickTask: Task = { id: newQuickId, name: quickTaskName, elapsedTime: 0, isTemplate: false };
-      return { ...state, tasks: [...state.tasks, newQuickTask], activeTaskId: newQuickId };
+      const durationForQuickAdd = action.payload.switchTime - state.sessionStartTime;
+      const tasksWithOldTime = state.tasks.map(task =>
+        task.id === state.activeTaskId ? { ...task, elapsedTime: task.elapsedTime + durationForQuickAdd } : task
+      );
+      return { ...state, tasks: [...tasksWithOldTime, newQuickTask], activeTaskId: newQuickId, sessionStartTime: action.payload.switchTime };
     case 'ADJUST_TIME':
-      return {
-        ...state,
-        tasks: state.tasks.map(task =>
-          task.id === action.payload.taskId
-            ? { ...task, elapsedTime: Math.max(0, task.elapsedTime + action.payload.amount) }
-            : task
-        ),
-      };
+      return { ...state, tasks: state.tasks.map(task => task.id === action.payload.taskId ? { ...task, elapsedTime: Math.max(0, task.elapsedTime + action.payload.amount) } : task) };
     default:
       return state;
   }
 };
 
-const formatTime = (totalSeconds: number) => {
+const formatTime = (totalMilliseconds: number) => {
+  const totalSeconds = Math.floor(totalMilliseconds / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
@@ -122,6 +110,7 @@ const formatTime = (totalSeconds: number) => {
 export default function HomePage() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [currentTime, setCurrentTime] = useState(Date.now());
   const [isAdding, setIsAdding] = useState(false);
   const [newTaskName, setNewTaskName] = useState('');
 
@@ -130,8 +119,13 @@ export default function HomePage() {
       const savedState = {
         tasks: JSON.parse(localStorage.getItem('tasks') || 'null'),
         activeTaskId: JSON.parse(localStorage.getItem('activeTaskId') || 'null'),
+        sessionStartTime: JSON.parse(localStorage.getItem('sessionStartTime') || 'null'),
       };
-      if (savedState.tasks) dispatch({ type: 'LOAD_STATE', payload: savedState });
+      if (savedState.tasks && savedState.activeTaskId && savedState.sessionStartTime) {
+        dispatch({ type: 'LOAD_STATE', payload: savedState });
+      } else {
+        dispatch({ type: 'START_NEW_DAY' });
+      }
     } catch (error) { console.error("Failed to load data", error); }
     setIsLoaded(true);
   }, []);
@@ -140,16 +134,22 @@ export default function HomePage() {
     if (!isLoaded) return;
     localStorage.setItem('tasks', JSON.stringify(state.tasks));
     localStorage.setItem('activeTaskId', JSON.stringify(state.activeTaskId));
+    localStorage.setItem('sessionStartTime', JSON.stringify(state.sessionStartTime));
   }, [state, isLoaded]);
 
   useEffect(() => {
-    if (!isLoaded || state.editingTaskId) return;
-    const interval = setInterval(() => dispatch({ type: 'TICK' }), 1000);
-    return () => clearInterval(interval);
-  }, [isLoaded, state.editingTaskId, state.activeTaskId]);
+    if (!isLoaded) return;
+    const timerId = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(timerId);
+  }, [isLoaded]);
 
-  const handleUpdateTaskName = (id: number, newName: string) => {
-    if (newName.trim() !== '') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id, newName } });
+  const handleSwitchTask = (newTaskId: number) => {
+    if (state.editingTaskId) return;
+    dispatch({ type: 'SWITCH_TASK', payload: { newTaskId, switchTime: Date.now() } });
+  };
+
+  const handleQuickAddTask = () => {
+    dispatch({ type: 'ADD_QUICK_TASK', payload: { switchTime: Date.now() } });
   };
 
   const handleAddPlannedTask = () => {
@@ -164,30 +164,12 @@ export default function HomePage() {
     return <Container maxWidth="sm"><Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}><CircularProgress /></Box></Container>;
   }
 
-  const renderTaskItem = (task: Task) => {
-    if (state.editingTaskId === task.id) {
-      return <TextField defaultValue={task.name} variant="standard" fullWidth autoFocus onBlur={(e) => handleUpdateTaskName(task.id, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateTaskName(task.id, (e.target as HTMLInputElement).value); }} sx={{ ml: 2 }} />;
+  const getTaskDisplayedTime = (task: Task) => {
+    let displayedTime = task.elapsedTime;
+    if (task.id === state.activeTaskId && !state.editingTaskId) {
+      displayedTime += (currentTime - state.sessionStartTime);
     }
-
-    return (
-      <ListItemButton selected={task.id === state.activeTaskId} onClick={() => dispatch({ type: 'SWITCH_TASK', payload: task.id })}>
-        <ListItemText primary={task.name} />
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          {/* アクティブなタスクにのみ時間調整ボタンを表示 */}
-          {state.activeTaskId === task.id && (
-            <ButtonGroup size="small" variant="outlined" sx={{ mr: 2 }}>
-              <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -300 } })}}>-5m</Button>
-              <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -60 } })}}>-1m</Button>
-              <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 60 } })}}>+1m</Button>
-              <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 300 } })}}>+5m</Button>
-            </ButtonGroup>
-          )}
-          <Typography variant="body1" sx={{ fontFamily: 'monospace', minWidth: '80px', textAlign: 'right' }}>
-            {formatTime(task.elapsedTime)}
-          </Typography>
-        </Box>
-      </ListItemButton>
-    );
+    return formatTime(displayedTime);
   };
 
   const templateTasks = state.tasks.filter(t => t.isTemplate);
@@ -205,12 +187,28 @@ export default function HomePage() {
         <Box sx={{ my: 2 }}>
           <Typography variant="subtitle1" color="text.secondary">現在記録中のタスク: {state.tasks.find(t => t.id === state.activeTaskId)?.name}</Typography>
           <List>
-            {templateTasks.map((task) => <ListItem key={task.id} disablePadding>{renderTaskItem(task)}</ListItem>)}
+            {templateTasks.map((task) => (
+              <ListItem key={task.id} disablePadding>
+                <ListItemButton selected={task.id === state.activeTaskId} onClick={() => handleSwitchTask(task.id)}>
+                  <ListItemText primary={task.name} />
+                  <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>{getTaskDisplayedTime(task)}</Typography>
+                </ListItemButton>
+              </ListItem>
+            ))}
           </List>
           {dailyTasks.length > 0 && <Divider sx={{ my: 2 }} />}
           <List>
             {dailyTasks.map((task) => (
-              <ListItem key={task.id} disablePadding secondaryAction={!task.isTemplate && state.editingTaskId !== task.id && <IconButton edge="end" onClick={() => dispatch({ type: 'START_EDIT', payload: task.id })}><EditIcon /></IconButton>}>{renderTaskItem(task)}</ListItem>
+              <ListItem key={task.id} disablePadding secondaryAction={!task.isTemplate && state.editingTaskId !== task.id && <IconButton edge="end" onClick={() => dispatch({ type: 'START_EDIT', payload: task.id })}><EditIcon /></IconButton>}>{(
+                state.editingTaskId === task.id ? (
+                  <TextField defaultValue={task.name} variant="standard" fullWidth autoFocus onBlur={(e) => dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: e.target.value } })} onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: (e.target as HTMLInputElement).value } }); }} sx={{ ml: 2 }} />
+                ) : (
+                  <ListItemButton selected={task.id === state.activeTaskId} onClick={() => handleSwitchTask(task.id)}>
+                    <ListItemText primary={task.name} />
+                    <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>{getTaskDisplayedTime(task)}</Typography>
+                  </ListItemButton>
+                )
+              )}</ListItem>
             ))}
           </List>
           <Box sx={{ mt: 2, display: 'flex', alignItems: 'center' }}>
@@ -219,7 +217,7 @@ export default function HomePage() {
             ) : (
               <>
                 <Button variant="contained" startIcon={<AddIcon />} onClick={() => setIsAdding(true)}>タスクを追加</Button>
-                <Button variant="outlined" startIcon={<BoltIcon />} onClick={() => dispatch({ type: 'ADD_QUICK_TASK' })} sx={{ ml: 2 }}>割り込み開始</Button>
+                <Button variant="outlined" startIcon={<BoltIcon />} onClick={handleQuickAddTask} sx={{ ml: 2 }}>割り込み開始</Button>
               </>
             )}
           </Box>
