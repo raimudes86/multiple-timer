@@ -27,6 +27,8 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import BoltIcon from '@mui/icons-material/Bolt';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import SettingsIcon from '@mui/icons-material/Settings';
+import SettingsDialog from './components/SettingsDialog';
 
 // --- State, Actions, and Reducer ---
 interface Task {
@@ -53,7 +55,10 @@ type AppAction =
   | { type: 'ADD_QUICK_TASK'; payload: { switchTime: number } }
   | { type: 'ADJUST_TIME'; payload: { taskId: number; amount: number } }
   | { type: 'RESET_TIME'; payload: number }
-  | { type: 'DELETE_TASK'; payload: number };
+  | { type: 'DELETE_TASK'; payload: number }
+  | { type: 'ADD_TEMPLATE_TASK'; payload: string }
+  | { type: 'UPDATE_TEMPLATE_TASK'; payload: { id: number; newName: string } }
+  | { type: 'DELETE_TEMPLATE_TASK'; payload: number };
 
 const initialTemplateTasks: Task[] = [
   { id: 1, name: '朝・夕会関連', elapsedTime: 0, isTemplate: true },
@@ -112,6 +117,17 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
         return { ...state, tasks: remainingTasks, activeTaskId: defaultTask.id, sessionStartTime: Date.now() };
       }
       return { ...state, tasks: remainingTasks };
+    // --- Template Actions ---
+    case 'ADD_TEMPLATE_TASK':
+      const newTemplateId = (state.tasks.length > 0 ? Math.max(...state.tasks.map(t => t.id)) : 0) + 1;
+      const newTemplateTask: Task = { id: newTemplateId, name: action.payload, elapsedTime: 0, isTemplate: true };
+      return { ...state, tasks: [...state.tasks, newTemplateTask] };
+    case 'UPDATE_TEMPLATE_TASK':
+      return { ...state, tasks: state.tasks.map(task => task.id === action.payload.id ? { ...task, name: action.payload.newName } : task) };
+    case 'DELETE_TEMPLATE_TASK':
+      // 最低1つのテンプレートは残す
+      if (state.tasks.filter(t => t.isTemplate).length <= 1) return state;
+      return { ...state, tasks: state.tasks.filter(t => t.id !== action.payload) };
     default:
       return state;
   }
@@ -134,6 +150,7 @@ export default function HomePage() {
   const [newTaskName, setNewTaskName] = useState('');
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [menuTaskId, setMenuTaskId] = useState<null | number>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false); // 設定ダイアログの表示状態
 
   useEffect(() => {
     try {
@@ -192,51 +209,68 @@ export default function HomePage() {
     return <Container maxWidth="sm"><Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}><CircularProgress /></Box></Container>;
   }
 
-  const renderTaskItem = (task: Task) => {
-    if (state.editingTaskId === task.id) {
-      return <TextField defaultValue={task.name} variant="standard" fullWidth autoFocus onBlur={(e) => dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: e.target.value } })} onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: (e.target as HTMLInputElement).value } }); }} sx={{ ml: 2 }} />;
-    }
-    return (
-      <ListItemButton selected={task.id === state.activeTaskId} onClick={() => handleSwitchTask(task.id)}>
-        <ListItemText primary={task.name} />
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          {state.activeTaskId === task.id && (
-            <ButtonGroup size="small" variant="text" color="inherit" sx={{ mr: 2 }}>
-              <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -300000 } })}}>-5m</Button>
-              <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -60000 } })}}>-1m</Button>
-              <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 60000 } })}}>+1m</Button>
-              <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 300000 } })}}>+5m</Button>
-            </ButtonGroup>
-          )}
-          <Typography variant="body1" sx={{ fontFamily: 'monospace', minWidth: '80px', textAlign: 'right' }}>{getTaskDisplayedTime(task)}</Typography>
-        </Box>
-      </ListItemButton>
-    );
-  };
-
   const selectedMenuTask = state.tasks.find(t => t.id === menuTaskId);
-  const templateTasks = state.tasks.filter(t => t.isTemplate);
-  const dailyTasks = state.tasks.filter(t => !t.isTemplate);
 
   return (
     <Box>
-      <AppBar position="static"><Toolbar><Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography><IconButton color="inherit" onClick={() => { if (window.confirm('新しい一日を開始しますか？\n本日追加したタスクはリセットされます。')) dispatch({ type: 'START_NEW_DAY' }); }}><RefreshIcon /></IconButton></Toolbar></AppBar>
+      <AppBar position="static">
+        <Toolbar>
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography>
+          <IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon /></IconButton>
+          <IconButton color="inherit" onClick={() => { if (window.confirm('新しい一日を開始しますか？\n本日追加したタスクはリセットされます。')) dispatch({ type: 'START_NEW_DAY' }); }}><RefreshIcon /></IconButton>
+        </Toolbar>
+      </AppBar>
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} tasks={state.tasks} dispatch={dispatch} />
       <Container maxWidth="sm">
         <Box sx={{ my: 2 }}>
           <Typography variant="subtitle1" color="text.secondary">現在記録中のタスク: {state.tasks.find(t => t.id === state.activeTaskId)?.name}</Typography>
           <List>
-            {templateTasks.map((task) => (
+            {state.tasks.filter(t => t.isTemplate).map((task) => (
               <ListItem key={task.id} disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, task.id)}><MoreVertIcon /></IconButton>}>
-                {renderTaskItem(task)}
+                {state.editingTaskId === task.id ? (
+                  <TextField defaultValue={task.name} variant="standard" fullWidth autoFocus onBlur={(e) => dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: e.target.value } })} onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: (e.target as HTMLInputElement).value } }); }} sx={{ ml: 2 }} />
+                ) : (
+                  <ListItemButton selected={task.id === state.activeTaskId} onClick={() => handleSwitchTask(task.id)}>
+                    <ListItemText primary={task.name} />
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      {state.activeTaskId === task.id && (
+                        <ButtonGroup size="small" variant="text" color="inherit" sx={{ mr: 2 }}>
+                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -300000 } })}}>-5m</Button>
+                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -60000 } })}}>-1m</Button>
+                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 60000 } })}}>+1m</Button>
+                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 300000 } })}}>+5m</Button>
+                        </ButtonGroup>
+                      )}
+                      <Typography variant="body1" sx={{ fontFamily: 'monospace', minWidth: '80px', textAlign: 'right' }}>{getTaskDisplayedTime(task)}</Typography>
+                    </Box>
+                  </ListItemButton>
+                )}
               </ListItem>
             ))}
           </List>
-          {dailyTasks.length > 0 && <Divider sx={{ my: 2 }} />}
+          {state.tasks.filter(t => !t.isTemplate).length > 0 && <Divider sx={{ my: 2 }} />}
           <List>
-            {dailyTasks.map((task) => (
-              <ListItem key={task.id} disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, task.id)}><MoreVertIcon /></IconButton>}>{
-                renderTaskItem(task)
-              }</ListItem>
+            {state.tasks.filter(t => !t.isTemplate).map((task) => (
+              <ListItem key={task.id} disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, task.id)}><MoreVertIcon /></IconButton>}>{ 
+                state.editingTaskId === task.id ? (
+                  <TextField defaultValue={task.name} variant="standard" fullWidth autoFocus onBlur={(e) => dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: e.target.value } })} onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: (e.target as HTMLInputElement).value } }); }} sx={{ ml: 2 }} />
+                ) : (
+                  <ListItemButton selected={task.id === state.activeTaskId} onClick={() => handleSwitchTask(task.id)}>
+                    <ListItemText primary={task.name} />
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      {state.activeTaskId === task.id && (
+                        <ButtonGroup size="small" variant="text" color="inherit" sx={{ mr: 2 }}>
+                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -300000 } })}}>-5m</Button>
+                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -60000 } })}}>-1m</Button>
+                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 60000 } })}}>+1m</Button>
+                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 300000 } })}}>+5m</Button>
+                        </ButtonGroup>
+                      )}
+                      <Typography variant="body1" sx={{ fontFamily: 'monospace', minWidth: '80px', textAlign: 'right' }}>{getTaskDisplayedTime(task)}</Typography>
+                    </Box>
+                  </ListItemButton>
+                )}
+              </ListItem>
             ))}
           </List>
           <Box sx={{ mt: 2, display: 'flex', alignItems: 'center' }}>
