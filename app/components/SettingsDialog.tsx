@@ -21,15 +21,27 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 
 // 型定義をpage.tsxから受け取る想定
-interface Task {
+interface BaseItem {
   id: number;
   name: string;
+  parentId: number | null;
 }
+
+interface GroupingItem extends BaseItem {
+  type: 'grouping';
+}
+
+interface TimedTaskItem extends BaseItem {
+  type: 'task';
+  elapsedTime: number; // ms
+}
+
+type AppItem = GroupingItem | TimedTaskItem;
 
 interface SettingsDialogProps {
   open: boolean;
   onClose: () => void;
-  tasks: Task[];
+  tasks: AppItem[];
   dispatch: (action: any) => void;
 }
 
@@ -44,36 +56,54 @@ export default function SettingsDialog({ open, onClose, tasks, dispatch }: Setti
 
   const handleImport = () => {
     const lines = importText.split('\n');
-    const prefixes = [':task-todo:', ':task-doing:'];
+    const slackPrefixes = [':task-todo:', ':task-doing:'];
     let currentParentName: string | null = null;
     const tasksToImport: { name: string; parentName: string | null }[] = [];
 
     lines.forEach(line => {
+      const originalLine = line; // Keep original line to check leading spaces
       const trimmedLine = line.trim();
 
       if (trimmedLine === '') return; // Ignore empty lines
 
-      // Check for parent task (line not starting with a colon)
-      if (!trimmedLine.startsWith(':')) {
-        currentParentName = trimmedLine; // This line is a parent
-        tasksToImport.push({ name: currentParentName, parentName: null });
-      } else {
-        // Check for child task (line starting with :task-todo: or :task-doing:)
-        let isChildTask = false;
-        for (const prefix of prefixes) {
+      let taskName = '';
+      let isParentCandidate = false;
+      let isChildCandidate = false;
+
+      // Check for bullet parent: "- Parent"
+      if (originalLine.startsWith('- ') && !originalLine.startsWith('  - ')) {
+        taskName = trimmedLine.substring(2).trim(); // Remove "- "
+        isParentCandidate = true;
+      }
+      // Check for bullet child: "  - Child"
+      else if (originalLine.startsWith('  - ')) {
+        taskName = trimmedLine.substring(2).trim(); // Remove "  - "
+        isChildCandidate = true;
+      }
+      // Check for Slack child: ":task-todo: Child" or ":task-doing: Child"
+      else if (slackPrefixes.some(prefix => trimmedLine.startsWith(prefix))) {
+        for (const prefix of slackPrefixes) {
           if (trimmedLine.startsWith(prefix)) {
-            const taskName = trimmedLine.substring(prefix.length).trim();
-            if (taskName) {
-              tasksToImport.push({ name: taskName, parentName: currentParentName });
-            }
-            isChildTask = true;
+            taskName = trimmedLine.substring(prefix.length).trim();
+            isChildCandidate = true;
             break;
           }
         }
-        // If it's not a recognized child task prefix, ignore it (e.g., :memo:)
-        if (!isChildTask) {
-          // Optionally, you could log or handle ignored lines here
+      }
+      // Check for plain parent: "Parent Task" (not starting with : or bullet)
+      else if (!trimmedLine.startsWith(':')) {
+        taskName = trimmedLine;
+        isParentCandidate = true;
+      }
+
+      if (taskName) {
+        if (isParentCandidate) {
+          currentParentName = taskName;
+          tasksToImport.push({ name: taskName, parentName: null });
+        } else if (isChildCandidate && currentParentName !== null) {
+          tasksToImport.push({ name: taskName, parentName: currentParentName });
         }
+        // If it's a child candidate but no parent is set, it's ignored (or could be added as top-level, but user implies parent-child structure)
       }
     });
 
