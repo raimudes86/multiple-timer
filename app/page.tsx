@@ -10,7 +10,10 @@ import {
   ListItemText,
   Box,
   CircularProgress,
+  IconButton,
+  TextField,
 } from '@mui/material';
+import EditIcon from '@mui/icons-material/Edit';
 
 // 1. State and Action Definitions
 interface Task {
@@ -22,12 +25,15 @@ interface Task {
 interface AppState {
   tasks: Task[];
   activeTaskId: number;
+  editingTaskId: number | null; // 編集中のタスクID (nullの場合は編集モードでない)
 }
 
 type AppAction =
   | { type: 'LOAD_STATE'; payload: Partial<AppState> }
   | { type: 'SWITCH_TASK'; payload: number }
-  | { type: 'TICK' };
+  | { type: 'TICK' }
+  | { type: 'START_EDIT'; payload: number }
+  | { type: 'UPDATE_TASK_NAME'; payload: { id: number; newName: string } };
 
 // 2. Initial State
 const initialState: AppState = {
@@ -38,21 +44,35 @@ const initialState: AppState = {
     { id: 4, name: '未分類', elapsedTime: 0 },
   ],
   activeTaskId: 4,
+  editingTaskId: null,
 };
 
-// 3. Reducer Function: All state logic is centralized here
+// 3. Reducer Function
 const appReducer = (state: AppState, action: AppAction): AppState => {
   switch (action.type) {
     case 'LOAD_STATE':
-      return { ...state, ...action.payload };
+      return { ...state, ...action.payload, editingTaskId: null }; // 読み込み時は編集モードを解除
     case 'SWITCH_TASK':
-      return { ...state, activeTaskId: action.payload };
+      // 編集中はタスク切り替えを許可しない
+      return state.editingTaskId ? state : { ...state, activeTaskId: action.payload };
     case 'TICK':
       return {
         ...state,
         tasks: state.tasks.map(task =>
           task.id === state.activeTaskId
             ? { ...task, elapsedTime: task.elapsedTime + 1 }
+            : task
+        ),
+      };
+    case 'START_EDIT':
+      return { ...state, editingTaskId: action.payload };
+    case 'UPDATE_TASK_NAME':
+      return {
+        ...state,
+        editingTaskId: null, // 編集モードを終了
+        tasks: state.tasks.map(task =>
+          task.id === action.payload.id
+            ? { ...task, name: action.payload.newName }
             : task
         ),
       };
@@ -76,7 +96,6 @@ export default function HomePage() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load from localStorage on mount
   useEffect(() => {
     try {
       const savedTasks = localStorage.getItem('tasks');
@@ -84,7 +103,6 @@ export default function HomePage() {
       const payload: Partial<AppState> = {};
       if (savedTasks) payload.tasks = JSON.parse(savedTasks);
       if (savedActiveTaskId) payload.activeTaskId = JSON.parse(savedActiveTaskId);
-      
       if (Object.keys(payload).length > 0) {
         dispatch({ type: 'LOAD_STATE', payload });
       }
@@ -94,23 +112,26 @@ export default function HomePage() {
     setIsLoaded(true);
   }, []);
 
-  // Save to localStorage on state change
   useEffect(() => {
     if (!isLoaded) return;
     localStorage.setItem('tasks', JSON.stringify(state.tasks));
     localStorage.setItem('activeTaskId', JSON.stringify(state.activeTaskId));
   }, [state, isLoaded]);
 
-  // Timer tick
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || state.editingTaskId) return; // 編集中はタイマーを止める
     const interval = setInterval(() => {
       dispatch({ type: 'TICK' });
     }, 1000);
     return () => clearInterval(interval);
-  }, [isLoaded]);
+  }, [isLoaded, state.editingTaskId]);
 
-  // Loading screen to prevent hydration errors
+  const handleUpdateTaskName = (id: number, newName: string) => {
+    if (newName.trim() !== '') {
+      dispatch({ type: 'UPDATE_TASK_NAME', payload: { id, newName } });
+    }
+  };
+
   if (!isLoaded) {
     return (
       <Container maxWidth="sm">
@@ -130,17 +151,39 @@ export default function HomePage() {
         </Typography>
         <List>
           {state.tasks.map((task) => (
-            <ListItem key={task.id} disablePadding>
-              <ListItemButton
-                selected={task.id === state.activeTaskId}
-                onClick={() => dispatch({ type: 'SWITCH_TASK', payload: task.id })}
-              >
-                <ListItemText primary={task.name} />
-                <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
-                  {formatTime(task.elapsedTime)}
-                </Typography>
-              </ListItemButton>
-            </ListItem>
+            <ListItem key={task.id} disablePadding secondaryAction={
+              state.editingTaskId !== task.id && (
+                <IconButton edge="end" aria-label="edit" onClick={() => dispatch({ type: 'START_EDIT', payload: task.id })}>
+                  <EditIcon />
+                </IconButton>
+              )
+            }>{
+              state.editingTaskId === task.id ? (
+                <TextField
+                  defaultValue={task.name}
+                  variant="standard"
+                  fullWidth
+                  autoFocus
+                  onBlur={(e) => handleUpdateTaskName(task.id, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleUpdateTaskName(task.id, (e.target as HTMLInputElement).value);
+                    }
+                  }}
+                  sx={{ ml: 2 }}
+                />
+              ) : (
+                <ListItemButton
+                  selected={task.id === state.activeTaskId}
+                  onClick={() => dispatch({ type: 'SWITCH_TASK', payload: task.id })}
+                >
+                  <ListItemText primary={task.name} />
+                  <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
+                    {formatTime(task.elapsedTime)}
+                  </Typography>
+                </ListItemButton>
+              )
+            }</ListItem>
           ))}
         </List>
       </Box>
