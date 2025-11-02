@@ -13,13 +13,14 @@ import {
   TextField,
   Button,
   Box,
+  Divider,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 
-// 型定義をpage.tsxから受け取る
+// 型定義をpage.tsxから受け取る想定
 interface Task {
   id: number;
   name: string;
@@ -38,6 +39,7 @@ export default function SettingsDialog({ open, onClose, tasks, dispatch }: Setti
 
   const [newTemplateName, setNewTemplateName] = useState('');
   const [editingTemplate, setEditingTemplate] = useState<Task | null>(null);
+  const [importText, setImportText] = useState('');
 
   const handleAddTemplate = () => {
     if (newTemplateName.trim() !== '') {
@@ -54,9 +56,28 @@ export default function SettingsDialog({ open, onClose, tasks, dispatch }: Setti
   };
 
   const handleDeleteTemplate = (id: number) => {
-    if (window.confirm('このテンプレートを削除しますか？')) {
+    if (window.confirm('このテンプレートを削除しますか？\n（このテンプレートの今日の記録もリセットされます）')) {
       dispatch({ type: 'DELETE_TEMPLATE_TASK', payload: id });
     }
+  };
+
+  const handleImport = () => {
+    const lines = importText.split('\n');
+    const prefixes = [':task-todo:', ':task-doing:'];
+    lines.forEach(line => {
+      const trimmedLine = line.trim();
+      for (const prefix of prefixes) {
+        if (trimmedLine.startsWith(prefix)) {
+          const taskName = trimmedLine.substring(prefix.length).trim();
+          if (taskName) {
+            dispatch({ type: 'ADD_PLANNED_TASK', payload: taskName });
+          }
+          break; // Once a prefix matches, move to the next line
+        }
+      }
+    });
+    setImportText('');
+    onClose(); // インポート後にダイアログを閉じる
   };
 
   return (
@@ -67,11 +88,13 @@ export default function SettingsDialog({ open, onClose, tasks, dispatch }: Setti
             <CloseIcon />
           </IconButton>
           <Typography sx={{ ml: 2, flex: 1 }} variant="h6" component="div">
-            テンプレートタスクの管理
+            設定
           </Typography>
         </Toolbar>
       </AppBar>
       <Box sx={{ p: 2 }}>
+        {/* Template Task Management */}
+        <Typography variant="h6" gutterBottom>テンプレートタスクの管理</Typography>
         <List>
           {templateTasks.map(task => (
             <ListItem key={task.id} secondaryAction={
@@ -115,6 +138,24 @@ export default function SettingsDialog({ open, onClose, tasks, dispatch }: Setti
             追加
           </Button>
         </Box>
+
+        <Divider sx={{ my: 4 }} />
+
+        {/* Import from Text */}
+        <Typography variant="h6" gutterBottom>テキストからタスクをインポート</Typography>
+        <TextField
+          label=":task-todo: や :task-doing: で始まるタスクリストを貼り付け"
+          multiline
+          rows={4}
+          fullWidth
+          value={importText}
+          onChange={(e) => setImportText(e.target.value)}
+          variant="outlined"
+          sx={{ mt: 2 }}
+        />
+        <Button variant="contained" onClick={handleImport} sx={{ mt: 2 }}>
+          インポート実行
+        </Button>
       </Box>
     </Dialog>
   );

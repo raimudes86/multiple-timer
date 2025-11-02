@@ -117,7 +117,6 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
         return { ...state, tasks: remainingTasks, activeTaskId: defaultTask.id, sessionStartTime: Date.now() };
       }
       return { ...state, tasks: remainingTasks };
-    // --- Template Actions ---
     case 'ADD_TEMPLATE_TASK':
       const newTemplateId = (state.tasks.length > 0 ? Math.max(...state.tasks.map(t => t.id)) : 0) + 1;
       const newTemplateTask: Task = { id: newTemplateId, name: action.payload, elapsedTime: 0, isTemplate: true };
@@ -125,7 +124,6 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
     case 'UPDATE_TEMPLATE_TASK':
       return { ...state, tasks: state.tasks.map(task => task.id === action.payload.id ? { ...task, name: action.payload.newName } : task) };
     case 'DELETE_TEMPLATE_TASK':
-      // 最低1つのテンプレートは残す
       if (state.tasks.filter(t => t.isTemplate).length <= 1) return state;
       return { ...state, tasks: state.tasks.filter(t => t.id !== action.payload) };
     default:
@@ -150,7 +148,7 @@ export default function HomePage() {
   const [newTaskName, setNewTaskName] = useState('');
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [menuTaskId, setMenuTaskId] = useState<null | number>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false); // 設定ダイアログの表示状態
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -213,13 +211,7 @@ export default function HomePage() {
 
   return (
     <Box>
-      <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography>
-          <IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon /></IconButton>
-          <IconButton color="inherit" onClick={() => { if (window.confirm('新しい一日を開始しますか？\n本日追加したタスクはリセットされます。')) dispatch({ type: 'START_NEW_DAY' }); }}><RefreshIcon /></IconButton>
-        </Toolbar>
-      </AppBar>
+      <AppBar position="static"><Toolbar><Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography><IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm('新しい一日を開始しますか？\n本日追加したタスクはリセットされます。')) dispatch({ type: 'START_NEW_DAY' }); }}><RefreshIcon /></IconButton></Toolbar></AppBar>
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} tasks={state.tasks} dispatch={dispatch} />
       <Container maxWidth="sm">
         <Box sx={{ my: 2 }}>
@@ -251,7 +243,7 @@ export default function HomePage() {
           {state.tasks.filter(t => !t.isTemplate).length > 0 && <Divider sx={{ my: 2 }} />}
           <List>
             {state.tasks.filter(t => !t.isTemplate).map((task) => (
-              <ListItem key={task.id} disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, task.id)}><MoreVertIcon /></IconButton>}>{ 
+              <ListItem key={task.id} disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, task.id)}><MoreVertIcon /></IconButton>}>{
                 state.editingTaskId === task.id ? (
                   <TextField defaultValue={task.name} variant="standard" fullWidth autoFocus onBlur={(e) => dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: e.target.value } })} onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: (e.target as HTMLInputElement).value } }); }} sx={{ ml: 2 }} />
                 ) : (
