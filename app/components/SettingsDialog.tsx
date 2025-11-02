@@ -45,18 +45,42 @@ export default function SettingsDialog({ open, onClose, tasks, dispatch }: Setti
   const handleImport = () => {
     const lines = importText.split('\n');
     const prefixes = [':task-todo:', ':task-doing:'];
+    let currentParentName: string | null = null;
+    const tasksToImport: { name: string; parentName: string | null }[] = [];
+
     lines.forEach(line => {
       const trimmedLine = line.trim();
-      for (const prefix of prefixes) {
-        if (trimmedLine.startsWith(prefix)) {
-          const taskName = trimmedLine.substring(prefix.length).trim();
-          if (taskName) {
-            dispatch({ type: 'ADD_PLANNED_TASK', payload: taskName });
+
+      if (trimmedLine === '') return; // Ignore empty lines
+
+      // Check for parent task (line not starting with a colon)
+      if (!trimmedLine.startsWith(':')) {
+        currentParentName = trimmedLine; // This line is a parent
+        tasksToImport.push({ name: currentParentName, parentName: null });
+      } else {
+        // Check for child task (line starting with :task-todo: or :task-doing:)
+        let isChildTask = false;
+        for (const prefix of prefixes) {
+          if (trimmedLine.startsWith(prefix)) {
+            const taskName = trimmedLine.substring(prefix.length).trim();
+            if (taskName) {
+              tasksToImport.push({ name: taskName, parentName: currentParentName });
+            }
+            isChildTask = true;
+            break;
           }
-          break;
+        }
+        // If it's not a recognized child task prefix, ignore it (e.g., :memo:)
+        if (!isChildTask) {
+          // Optionally, you could log or handle ignored lines here
         }
       }
     });
+
+    if (tasksToImport.length > 0) {
+      dispatch({ type: 'IMPORT_TASKS_BATCH', payload: tasksToImport });
+    }
+
     setImportText('');
     onClose();
   };

@@ -58,7 +58,7 @@ type AppAction =
   | { type: 'ADD_QUICK_SUB_TASK'; payload: { parentId: number; switchTime: number } }
   | { type: 'ADJUST_TIME'; payload: { taskId: number; amount: number } }
   | { type: 'RESET_TIME'; payload: number }
-  | { type: 'DELETE_TASK'; payload: number };
+  | { type: 'IMPORT_TASKS_BATCH'; payload: { name: string; parentName: string | null }[] };
 
 
 
@@ -132,6 +132,32 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
         return { ...state, tasks: remainingTasks.length > 0 ? remainingTasks : [newActiveTask], activeTaskId: newActiveTask.id, sessionStartTime: Date.now() };
       }
       return { ...state, tasks: remainingTasks };
+    case 'IMPORT_TASKS_BATCH':
+      let currentMaxId = getNewId() - 1; // getNewId() returns maxId + 1, so subtract 1
+      const newTasks: Task[] = [];
+      const parentNameToIdMap = new Map<string, number>();
+
+      action.payload.forEach(item => {
+        currentMaxId++;
+        if (item.parentName === null) {
+          // This is a parent task
+          const newParentTask: Task = { id: currentMaxId, name: item.name, elapsedTime: 0, parentId: null };
+          newTasks.push(newParentTask);
+          parentNameToIdMap.set(item.name, currentMaxId);
+        } else {
+          // This is a child task
+          const parentId = parentNameToIdMap.get(item.parentName);
+          if (parentId !== undefined) {
+            const newChildTask: Task = { id: currentMaxId, name: item.name, elapsedTime: 0, parentId: parentId };
+            newTasks.push(newChildTask);
+          } else {
+            // If parent not found, add as a top-level task (fallback)
+            const newTopLevelTask: Task = { id: currentMaxId, name: item.name, elapsedTime: 0, parentId: null };
+            newTasks.push(newTopLevelTask);
+          }
+        }
+      });
+      return { ...state, tasks: [...state.tasks, ...newTasks] };
     default:
       return state;
   }
