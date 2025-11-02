@@ -16,11 +16,12 @@ import {
   TextField,
   Button,
   Divider,
+  ButtonGroup,
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import BoltIcon from '@mui/icons-material/Bolt'; // 稲妻アイコン
+import BoltIcon from '@mui/icons-material/Bolt';
 
 // --- State, Actions, and Reducer ---
 interface Task {
@@ -44,7 +45,8 @@ type AppAction =
   | { type: 'START_EDIT'; payload: number }
   | { type: 'UPDATE_TASK_NAME'; payload: { id: number; newName: string } }
   | { type: 'ADD_PLANNED_TASK'; payload: string }
-  | { type: 'ADD_QUICK_TASK' };
+  | { type: 'ADD_QUICK_TASK' }
+  | { type: 'ADJUST_TIME'; payload: { taskId: number; amount: number } };
 
 const initialTemplateTasks: Task[] = [
   { id: 1, name: '朝・夕会関連', elapsedTime: 0, isTemplate: true },
@@ -68,6 +70,8 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
     case 'SWITCH_TASK':
       return state.editingTaskId ? state : { ...state, activeTaskId: action.payload };
     case 'TICK':
+      // 編集中はタイマーを進めない
+      if (state.editingTaskId) return state;
       return {
         ...state,
         tasks: state.tasks.map(task =>
@@ -92,10 +96,15 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       const quickTaskName = `臨時タスク ${state.tasks.filter(t => t.name.startsWith('臨時タスク')).length + 1}`;
       const newQuickId = (state.tasks.length > 0 ? Math.max(...state.tasks.map(t => t.id)) : 0) + 1;
       const newQuickTask: Task = { id: newQuickId, name: quickTaskName, elapsedTime: 0, isTemplate: false };
+      return { ...state, tasks: [...state.tasks, newQuickTask], activeTaskId: newQuickId };
+    case 'ADJUST_TIME':
       return {
         ...state,
-        tasks: [...state.tasks, newQuickTask],
-        activeTaskId: newQuickId, // タイマーを切り替える
+        tasks: state.tasks.map(task =>
+          task.id === action.payload.taskId
+            ? { ...task, elapsedTime: Math.max(0, task.elapsedTime + action.payload.amount) }
+            : task
+        ),
       };
     default:
       return state;
@@ -122,12 +131,8 @@ export default function HomePage() {
         tasks: JSON.parse(localStorage.getItem('tasks') || 'null'),
         activeTaskId: JSON.parse(localStorage.getItem('activeTaskId') || 'null'),
       };
-      if (savedState.tasks) {
-        dispatch({ type: 'LOAD_STATE', payload: savedState });
-      }
-    } catch (error) {
-      console.error("Failed to load data from localStorage", error);
-    }
+      if (savedState.tasks) dispatch({ type: 'LOAD_STATE', payload: savedState });
+    } catch (error) { console.error("Failed to load data", error); }
     setIsLoaded(true);
   }, []);
 
@@ -144,22 +149,46 @@ export default function HomePage() {
   }, [isLoaded, state.editingTaskId, state.activeTaskId]);
 
   const handleUpdateTaskName = (id: number, newName: string) => {
-    if (newName.trim() !== '') {
-      dispatch({ type: 'UPDATE_TASK_NAME', payload: { id, newName } });
-    }
+    if (newName.trim() !== '') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id, newName } });
   };
 
   const handleAddPlannedTask = () => {
     if (newTaskName.trim() !== '') {
       dispatch({ type: 'ADD_PLANNED_TASK', payload: newTaskName });
       setNewTaskName('');
-      setIsAdding(false); // フォームを閉じる処理を復活
+      setIsAdding(false);
     }
   };
 
   if (!isLoaded) {
     return <Container maxWidth="sm"><Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}><CircularProgress /></Box></Container>;
   }
+
+  const renderTaskItem = (task: Task) => {
+    if (state.editingTaskId === task.id) {
+      return <TextField defaultValue={task.name} variant="standard" fullWidth autoFocus onBlur={(e) => handleUpdateTaskName(task.id, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateTaskName(task.id, (e.target as HTMLInputElement).value); }} sx={{ ml: 2 }} />;
+    }
+
+    return (
+      <ListItemButton selected={task.id === state.activeTaskId} onClick={() => dispatch({ type: 'SWITCH_TASK', payload: task.id })}>
+        <ListItemText primary={task.name} />
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          {/* アクティブなタスクにのみ時間調整ボタンを表示 */}
+          {state.activeTaskId === task.id && (
+            <ButtonGroup size="small" variant="outlined" sx={{ mr: 2 }}>
+              <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -300 } })}}>-5m</Button>
+              <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -60 } })}}>-1m</Button>
+              <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 60 } })}}>+1m</Button>
+              <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 300 } })}}>+5m</Button>
+            </ButtonGroup>
+          )}
+          <Typography variant="body1" sx={{ fontFamily: 'monospace', minWidth: '80px', textAlign: 'right' }}>
+            {formatTime(task.elapsedTime)}
+          </Typography>
+        </Box>
+      </ListItemButton>
+    );
+  };
 
   const templateTasks = state.tasks.filter(t => t.isTemplate);
   const dailyTasks = state.tasks.filter(t => !t.isTemplate);
@@ -168,69 +197,29 @@ export default function HomePage() {
     <Box>
       <AppBar position="static">
         <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Time Logger
-          </Typography>
-          <IconButton color="inherit" onClick={() => { if (window.confirm('新しい一日を開始しますか？\n本日追加したタスクはリセットされます。')) dispatch({ type: 'START_NEW_DAY' }); }}>
-            <RefreshIcon />
-          </IconButton>
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography>
+          <IconButton color="inherit" onClick={() => { if (window.confirm('新しい一日を開始しますか？\n本日追加したタスクはリセットされます。')) dispatch({ type: 'START_NEW_DAY' }); }}><RefreshIcon /></IconButton>
         </Toolbar>
       </AppBar>
       <Container maxWidth="sm">
         <Box sx={{ my: 2 }}>
           <Typography variant="subtitle1" color="text.secondary">現在記録中のタスク: {state.tasks.find(t => t.id === state.activeTaskId)?.name}</Typography>
-          
           <List>
-            {templateTasks.map((task) => (
-              <ListItem key={task.id} disablePadding>{
-                <ListItemButton selected={task.id === state.activeTaskId} onClick={() => dispatch({ type: 'SWITCH_TASK', payload: task.id })}>
-                  <ListItemText primary={task.name} />
-                  <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>{formatTime(task.elapsedTime)}</Typography>
-                </ListItemButton>
-              }</ListItem>
-            ))}
+            {templateTasks.map((task) => <ListItem key={task.id} disablePadding>{renderTaskItem(task)}</ListItem>)}
           </List>
-
           {dailyTasks.length > 0 && <Divider sx={{ my: 2 }} />}
-
           <List>
             {dailyTasks.map((task) => (
-              <ListItem key={task.id} disablePadding secondaryAction={
-                state.editingTaskId !== task.id && (
-                  <IconButton edge="end" aria-label="edit" onClick={() => dispatch({ type: 'START_EDIT', payload: task.id })}><EditIcon /></IconButton>
-                )
-              }>{
-                state.editingTaskId === task.id ? (
-                  <TextField defaultValue={task.name} variant="standard" fullWidth autoFocus
-                    onBlur={(e) => handleUpdateTaskName(task.id, e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateTaskName(task.id, (e.target as HTMLInputElement).value); }}
-                    sx={{ ml: 2 }}
-                  />
-                ) : (
-                  <ListItemButton selected={task.id === state.activeTaskId} onClick={() => dispatch({ type: 'SWITCH_TASK', payload: task.id })}>
-                    <ListItemText primary={task.name} />
-                    <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>{formatTime(task.elapsedTime)}</Typography>
-                  </ListItemButton>
-                )
-              }</ListItem>
+              <ListItem key={task.id} disablePadding secondaryAction={!task.isTemplate && state.editingTaskId !== task.id && <IconButton edge="end" onClick={() => dispatch({ type: 'START_EDIT', payload: task.id })}><EditIcon /></IconButton>}>{renderTaskItem(task)}</ListItem>
             ))}
           </List>
-
           <Box sx={{ mt: 2, display: 'flex', alignItems: 'center' }}>
             {isAdding ? (
-              <TextField label="新しいタスク名" variant="standard" fullWidth autoFocus value={newTaskName}
-                onChange={(e) => setNewTaskName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleAddPlannedTask(); }}
-                onBlur={() => setIsAdding(false)} // フォーカスが外れたらボタンに戻る
-              />
+              <TextField label="新しいタスク名" variant="standard" fullWidth autoFocus value={newTaskName} onChange={(e) => setNewTaskName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddPlannedTask(); }} onBlur={() => setIsAdding(false)} />
             ) : (
               <>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setIsAdding(true)}>
-                  タスクを追加
-                </Button>
-                <Button variant="outlined" startIcon={<BoltIcon />} onClick={() => dispatch({ type: 'ADD_QUICK_TASK' })} sx={{ ml: 2 }}>
-                  割り込み開始
-                </Button>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setIsAdding(true)}>タスクを追加</Button>
+                <Button variant="outlined" startIcon={<BoltIcon />} onClick={() => dispatch({ type: 'ADD_QUICK_TASK' })} sx={{ ml: 2 }}>割り込み開始</Button>
               </>
             )}
           </Box>
