@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useReducer } from 'react';
 import {
   Container,
   Typography,
@@ -9,21 +9,57 @@ import {
   ListItemButton,
   ListItemText,
   Box,
-  CircularProgress, // ローディング表示用
+  CircularProgress,
 } from '@mui/material';
 
+// 1. State and Action Definitions
 interface Task {
   id: number;
   name: string;
   elapsedTime: number;
 }
 
-const initialTasks: Task[] = [
-  { id: 1, name: '開発', elapsedTime: 0 },
-  { id: 2, name: '会議', elapsedTime: 0 },
-  { id: 3, name: '休憩', elapsedTime: 0 },
-  { id: 4, name: '未分類', elapsedTime: 0 },
-];
+interface AppState {
+  tasks: Task[];
+  activeTaskId: number;
+}
+
+type AppAction =
+  | { type: 'LOAD_STATE'; payload: Partial<AppState> }
+  | { type: 'SWITCH_TASK'; payload: number }
+  | { type: 'TICK' };
+
+// 2. Initial State
+const initialState: AppState = {
+  tasks: [
+    { id: 1, name: '開発', elapsedTime: 0 },
+    { id: 2, name: '会議', elapsedTime: 0 },
+    { id: 3, name: '休憩', elapsedTime: 0 },
+    { id: 4, name: '未分類', elapsedTime: 0 },
+  ],
+  activeTaskId: 4,
+};
+
+// 3. Reducer Function: All state logic is centralized here
+const appReducer = (state: AppState, action: AppAction): AppState => {
+  switch (action.type) {
+    case 'LOAD_STATE':
+      return { ...state, ...action.payload };
+    case 'SWITCH_TASK':
+      return { ...state, activeTaskId: action.payload };
+    case 'TICK':
+      return {
+        ...state,
+        tasks: state.tasks.map(task =>
+          task.id === state.activeTaskId
+            ? { ...task, elapsedTime: task.elapsedTime + 1 }
+            : task
+        ),
+      };
+    default:
+      return state;
+  }
+};
 
 const formatTime = (totalSeconds: number) => {
   const hours = Math.floor(totalSeconds / 3600);
@@ -37,21 +73,20 @@ const formatTime = (totalSeconds: number) => {
 };
 
 export default function HomePage() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
-  const [activeTaskId, setActiveTaskId] = useState<number>(4);
+  const [state, dispatch] = useReducer(appReducer, initialState);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // localStorageからデータを読み込むEffect
+  // Load from localStorage on mount
   useEffect(() => {
     try {
       const savedTasks = localStorage.getItem('tasks');
       const savedActiveTaskId = localStorage.getItem('activeTaskId');
-
-      if (savedTasks) {
-        setTasks(JSON.parse(savedTasks));
-      }
-      if (savedActiveTaskId) {
-        setActiveTaskId(JSON.parse(savedActiveTaskId));
+      const payload: Partial<AppState> = {};
+      if (savedTasks) payload.tasks = JSON.parse(savedTasks);
+      if (savedActiveTaskId) payload.activeTaskId = JSON.parse(savedActiveTaskId);
+      
+      if (Object.keys(payload).length > 0) {
+        dispatch({ type: 'LOAD_STATE', payload });
       }
     } catch (error) {
       console.error("Failed to load data from localStorage", error);
@@ -59,50 +94,27 @@ export default function HomePage() {
     setIsLoaded(true);
   }, []);
 
-  // localStorageにデータを保存するEffect
+  // Save to localStorage on state change
   useEffect(() => {
     if (!isLoaded) return;
-    localStorage.setItem('tasks', JSON.stringify(tasks));
-    localStorage.setItem('activeTaskId', JSON.stringify(activeTaskId));
-  }, [tasks, activeTaskId, isLoaded]);
+    localStorage.setItem('tasks', JSON.stringify(state.tasks));
+    localStorage.setItem('activeTaskId', JSON.stringify(state.activeTaskId));
+  }, [state, isLoaded]);
 
-  // タイマー機能のEffect
+  // Timer tick
   useEffect(() => {
     if (!isLoaded) return;
     const interval = setInterval(() => {
-      setTasks(prevTasks =>
-        prevTasks.map(task =>
-          task.id === activeTaskId
-            ? { ...task, elapsedTime: task.elapsedTime + 1 }
-            : task
-        )
-      );
+      dispatch({ type: 'TICK' });
     }, 1000);
-
     return () => clearInterval(interval);
-  }, [activeTaskId, isLoaded]);
+  }, [isLoaded]);
 
-  const handleTaskClick = (taskId: number) => {
-    setActiveTaskId(taskId);
-  };
-
-  // 読み込みが完了するまでローディング画面を表示
+  // Loading screen to prevent hydration errors
   if (!isLoaded) {
     return (
       <Container maxWidth="sm">
-        <Box
-          sx={{
-            my: 4,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '80vh',
-          }}
-        >
-          <CircularProgress />
-          <Typography sx={{ mt: 2 }}>Loading...</Typography>
-        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}><CircularProgress /></Box>
       </Container>
     );
   }
@@ -114,14 +126,14 @@ export default function HomePage() {
           Time Logger
         </Typography>
         <Typography variant="subtitle1" color="text.secondary">
-          現在記録中のタスク: {tasks.find(t => t.id === activeTaskId)?.name}
+          現在記録中のタスク: {state.tasks.find(t => t.id === state.activeTaskId)?.name}
         </Typography>
         <List>
-          {tasks.map((task) => (
+          {state.tasks.map((task) => (
             <ListItem key={task.id} disablePadding>
               <ListItemButton
-                selected={task.id === activeTaskId}
-                onClick={() => handleTaskClick(task.id)}
+                selected={task.id === state.activeTaskId}
+                onClick={() => dispatch({ type: 'SWITCH_TASK', payload: task.id })}
               >
                 <ListItemText primary={task.name} />
                 <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
