@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useReducer } from 'react';
+import { useState, useEffect, useReducer, useMemo } from 'react';
 import {
   AppBar,
   Toolbar,
@@ -28,6 +28,7 @@ import BoltIcon from '@mui/icons-material/Bolt';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import SettingsIcon from '@mui/icons-material/Settings';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import SettingsDialog from './components/SettingsDialog';
 
 // --- State, Actions, and Reducer ---
@@ -36,6 +37,7 @@ interface Task {
   name: string;
   elapsedTime: number; // ms
   isTemplate: boolean;
+  parentId: number | null;
 }
 
 interface AppState {
@@ -52,7 +54,9 @@ type AppAction =
   | { type: 'START_EDIT'; payload: number }
   | { type: 'UPDATE_TASK_NAME'; payload: { id: number; newName: string } }
   | { type: 'ADD_PLANNED_TASK'; payload: string }
+  | { type: 'ADD_SUB_TASK'; payload: { parentId: number; name: string } }
   | { type: 'ADD_QUICK_TASK'; payload: { switchTime: number } }
+  | { type: 'ADD_QUICK_SUB_TASK'; payload: { parentId: number; switchTime: number } }
   | { type: 'ADJUST_TIME'; payload: { taskId: number; amount: number } }
   | { type: 'RESET_TIME'; payload: number }
   | { type: 'DELETE_TASK'; payload: number }
@@ -61,9 +65,9 @@ type AppAction =
   | { type: 'DELETE_TEMPLATE_TASK'; payload: number };
 
 const initialTemplateTasks: Task[] = [
-  { id: 1, name: '朝・夕会関連', elapsedTime: 0, isTemplate: true },
-  { id: 2, name: '休憩', elapsedTime: 0, isTemplate: true },
-  { id: 3, name: '未分類', elapsedTime: 0, isTemplate: true },
+  { id: 1, name: '朝・夕会関連', elapsedTime: 0, isTemplate: true, parentId: null },
+  { id: 2, name: '休憩', elapsedTime: 0, isTemplate: true, parentId: null },
+  { id: 3, name: '未分類', elapsedTime: 0, isTemplate: true, parentId: null },
 ];
 
 const initialState: AppState = {
@@ -74,6 +78,8 @@ const initialState: AppState = {
 };
 
 const appReducer = (state: AppState, action: AppAction): AppState => {
+  const getNewId = () => (state.tasks.length > 0 ? Math.max(...state.tasks.map(t => t.id)) : 0) + 1;
+
   switch (action.type) {
     case 'LOAD_STATE':
       return { ...state, ...action.payload, editingTaskId: null };
@@ -92,13 +98,20 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
     case 'UPDATE_TASK_NAME':
       return { ...state, editingTaskId: null, tasks: state.tasks.map(task => task.id === action.payload.id ? { ...task, name: action.payload.newName } : task) };
     case 'ADD_PLANNED_TASK':
-      const newPlannedId = (state.tasks.length > 0 ? Math.max(...state.tasks.map(t => t.id)) : 0) + 1;
-      const newPlannedTask: Task = { id: newPlannedId, name: action.payload, elapsedTime: 0, isTemplate: false };
+      const newPlannedTask: Task = { id: getNewId(), name: action.payload, elapsedTime: 0, isTemplate: false, parentId: null };
       return { ...state, tasks: [...state.tasks, newPlannedTask] };
+    case 'ADD_SUB_TASK':
+      const newSubTask: Task = { id: getNewId(), name: action.payload.name, elapsedTime: 0, isTemplate: false, parentId: action.payload.parentId };
+      return { ...state, tasks: [...state.tasks, newSubTask] };
     case 'ADD_QUICK_TASK':
-      const quickTaskName = `臨時タスク ${state.tasks.filter(t => t.name.startsWith('臨時タスク')).length + 1}`;
-      const newQuickId = (state.tasks.length > 0 ? Math.max(...state.tasks.map(t => t.id)) : 0) + 1;
-      const newQuickTask: Task = { id: newQuickId, name: quickTaskName, elapsedTime: 0, isTemplate: false };
+    case 'ADD_QUICK_SUB_TASK':
+      const isSub = action.type === 'ADD_QUICK_SUB_TASK';
+      const parentId = isSub ? action.payload.parentId : null;
+      const namePrefix = isSub ? '臨時サブタスク' : '臨時タスク';
+      const count = state.tasks.filter(t => t.name.startsWith(namePrefix) && t.parentId === parentId).length + 1;
+      const quickTaskName = `${namePrefix} ${count}`;
+      const newQuickId = getNewId();
+      const newQuickTask: Task = { id: newQuickId, name: quickTaskName, elapsedTime: 0, isTemplate: false, parentId };
       const durationForQuickAdd = action.payload.switchTime - state.sessionStartTime;
       const tasksWithOldTime = state.tasks.map(task =>
         task.id === state.activeTaskId ? { ...task, elapsedTime: task.elapsedTime + durationForQuickAdd } : task
@@ -110,16 +123,20 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       return { ...state, tasks: state.tasks.map(task => task.id === action.payload ? { ...task, elapsedTime: 0 } : task) };
     case 'DELETE_TASK':
       const taskToDelete = state.tasks.find(t => t.id === action.payload);
-      if (!taskToDelete || taskToDelete.isTemplate) return state;
-      const remainingTasks = state.tasks.filter(task => task.id !== action.payload);
-      if (state.activeTaskId === action.payload) {
-        const defaultTask = state.tasks.find(t => t.id === 3); // 未分類タスク
+      if (!taskToDelete) return state;
+      const descendantIds = new Set<number>([action.payload]);
+      if (taskToDelete.parentId === null) {
+        const children = state.tasks.filter(t => t.parentId === action.payload);
+        for (const child of children) descendantIds.add(child.id);
+      }
+      const remainingTasks = state.tasks.filter(task => !descendantIds.has(task.id));
+      if (descendantIds.has(state.activeTaskId)) {
+        const defaultTask = state.tasks.find(t => t.id === 3);
         return { ...state, tasks: remainingTasks, activeTaskId: defaultTask.id, sessionStartTime: Date.now() };
       }
       return { ...state, tasks: remainingTasks };
     case 'ADD_TEMPLATE_TASK':
-      const newTemplateId = (state.tasks.length > 0 ? Math.max(...state.tasks.map(t => t.id)) : 0) + 1;
-      const newTemplateTask: Task = { id: newTemplateId, name: action.payload, elapsedTime: 0, isTemplate: true };
+      const newTemplateTask: Task = { id: getNewId(), name: action.payload, elapsedTime: 0, isTemplate: true, parentId: null };
       return { ...state, tasks: [...state.tasks, newTemplateTask] };
     case 'UPDATE_TEMPLATE_TASK':
       return { ...state, tasks: state.tasks.map(task => task.id === action.payload.id ? { ...task, name: action.payload.newName } : task) };
@@ -146,6 +163,7 @@ export default function HomePage() {
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [isAdding, setIsAdding] = useState(false);
   const [newTaskName, setNewTaskName] = useState('');
+  const [addingSubtaskTo, setAddingSubtaskTo] = useState<number | null>(null);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [menuTaskId, setMenuTaskId] = useState<null | number>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -171,20 +189,13 @@ export default function HomePage() {
     return () => clearInterval(timerId);
   }, [isLoaded]);
 
-  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, taskId: number) => {
-    setMenuAnchorEl(event.currentTarget);
-    setMenuTaskId(taskId);
-  };
-  const handleMenuClose = () => {
-    setMenuAnchorEl(null);
-    setMenuTaskId(null);
-  };
-
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, taskId: number) => { setMenuAnchorEl(event.currentTarget); setMenuTaskId(taskId); };
+  const handleMenuClose = () => { setMenuAnchorEl(null); setMenuTaskId(null); };
   const handleSwitchTask = (newTaskId: number) => {
-    if (state.editingTaskId || state.activeTaskId === newTaskId) return;
+    const hasChildren = state.tasks.some(t => t.parentId === newTaskId);
+    if (hasChildren || state.editingTaskId || state.activeTaskId === newTaskId) return;
     dispatch({ type: 'SWITCH_TASK', payload: { newTaskId, switchTime: Date.now() } });
   };
-
   const handleQuickAddTask = () => dispatch({ type: 'ADD_QUICK_TASK', payload: { switchTime: Date.now() } });
   const handleAddPlannedTask = () => {
     if (newTaskName.trim() !== '') {
@@ -193,19 +204,85 @@ export default function HomePage() {
       setIsAdding(false);
     }
   };
+  const handleAddSubtask = (parentId: number, name: string) => {
+    if (name.trim() !== '') {
+      dispatch({ type: 'ADD_SUB_TASK', payload: { parentId, name } });
+      setAddingSubtaskTo(null);
+    }
+  };
 
-  const getTaskDisplayedTime = (task: Task) => {
-    let displayedTime = task.elapsedTime;
-    if (task.id === state.activeTaskId && !state.editingTaskId) {
+  const { taskTree, tasksById } = useMemo(() => {
+    const tasksById = new Map(state.tasks.map(t => [t.id, { ...t, children: [] as (Task & { children: any[] })[] }]));
+    const tree: (Task & { children: any[] })[] = [];
+    for (const task of tasksById.values()) {
+      if (task.parentId) {
+        tasksById.get(task.parentId)?.children.push(task);
+      } else {
+        tree.push(task);
+      }
+    }
+    return { taskTree: tree, tasksById };
+  }, [state.tasks]);
+
+  const getTaskDisplayedTime = (task: Task, children: Task[]) => {
+    const isParent = children.length > 0;
+    let displayedTime = isParent ? children.reduce((acc, child) => acc + child.elapsedTime, 0) : task.elapsedTime;
+    if (task.id === state.activeTaskId && !isParent && !state.editingTaskId) {
       const sessionDuration = Math.max(0, currentTime - state.sessionStartTime);
       displayedTime += sessionDuration;
     }
-    return formatTime(displayedTime);
+    return displayedTime;
   };
 
   if (!isLoaded) {
     return <Container maxWidth="sm"><Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}><CircularProgress /></Box></Container>;
   }
+
+  const renderTask = (task: Task & { children: Task[] }, level: number) => {
+    const isTopLevel = task.parentId === null;
+    const isParent = task.children.length > 0;
+    const canBeActive = !isParent;
+
+    if (state.editingTaskId === task.id) {
+      return <ListItem key={task.id} sx={{ pl: level * 4 }}><TextField defaultValue={task.name} variant="standard" fullWidth autoFocus onBlur={(e) => dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: e.target.value } })} onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: (e.target as HTMLInputElement).value } }); }} /></ListItem>;
+    }
+
+    return (
+      <Box key={task.id}>
+        <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, task.id)}><MoreVertIcon /></IconButton>}>
+          <ListItemButton selected={canBeActive && task.id === state.activeTaskId} onClick={() => canBeActive && handleSwitchTask(task.id)} sx={{ pl: level * 2 }}>
+            <ListItemText primary={task.name} primaryTypographyProps={{ fontWeight: isParent || isTopLevel ? 'bold' : 'normal' }} />
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              {isTopLevel ? (
+                <>
+                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); setAddingSubtaskTo(task.id); }}><AddCircleOutlineIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADD_QUICK_SUB_TASK', payload: { parentId: task.id, switchTime: Date.now() } })}}><BoltIcon fontSize="small" /></IconButton>
+                </>
+              ) : (
+                <>
+                  {state.activeTaskId === task.id && (
+                    <ButtonGroup size="small" variant="text" color="inherit" sx={{ mr: 2 }}>
+                      <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -300000 } })}}>-5m</Button>
+                      <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -60000 } })}}>-1m</Button>
+                      <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 60000 } })}}>+1m</Button>
+                      <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 300000 } })}}>+5m</Button>
+                    </ButtonGroup>
+                  )}
+                  <Typography variant="body1" sx={{ fontFamily: 'monospace', minWidth: '80px', textAlign: 'right' }}>{formatTime(getTaskDisplayedTime(task, []))}</Typography>
+                </>
+              )}
+            </Box>
+          </ListItemButton>
+        </ListItem>
+        {addingSubtaskTo === task.id && (
+          <ListItem sx={{ pl: (level + 2) * 4 }}>
+            <TextField label="新しいサブタスク名" variant="standard" fullWidth autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubtask(task.id, (e.target as HTMLInputElement).value); }} onBlur={() => setAddingSubtaskTo(null)} />
+          </ListItem>
+        )}
+        {isParent && <List disablePadding>{task.children.map(child => renderTask(child, level + 1))}</List>}
+      </Box>
+    );
+  };
 
   const selectedMenuTask = state.tasks.find(t => t.id === menuTaskId);
 
@@ -217,60 +294,14 @@ export default function HomePage() {
         <Box sx={{ my: 2 }}>
           <Typography variant="subtitle1" color="text.secondary">現在記録中のタスク: {state.tasks.find(t => t.id === state.activeTaskId)?.name}</Typography>
           <List>
-            {state.tasks.filter(t => t.isTemplate).map((task) => (
-              <ListItem key={task.id} disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, task.id)}><MoreVertIcon /></IconButton>}>
-                {state.editingTaskId === task.id ? (
-                  <TextField defaultValue={task.name} variant="standard" fullWidth autoFocus onBlur={(e) => dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: e.target.value } })} onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: (e.target as HTMLInputElement).value } }); }} sx={{ ml: 2 }} />
-                ) : (
-                  <ListItemButton selected={task.id === state.activeTaskId} onClick={() => handleSwitchTask(task.id)}>
-                    <ListItemText primary={task.name} />
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      {state.activeTaskId === task.id && (
-                        <ButtonGroup size="small" variant="text" color="inherit" sx={{ mr: 2 }}>
-                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -300000 } })}}>-5m</Button>
-                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -60000 } })}}>-1m</Button>
-                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 60000 } })}}>+1m</Button>
-                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 300000 } })}}>+5m</Button>
-                        </ButtonGroup>
-                      )}
-                      <Typography variant="body1" sx={{ fontFamily: 'monospace', minWidth: '80px', textAlign: 'right' }}>{getTaskDisplayedTime(task)}</Typography>
-                    </Box>
-                  </ListItemButton>
-                )}
-              </ListItem>
-            ))}
-          </List>
-          {state.tasks.filter(t => !t.isTemplate).length > 0 && <Divider sx={{ my: 2 }} />}
-          <List>
-            {state.tasks.filter(t => !t.isTemplate).map((task) => (
-              <ListItem key={task.id} disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, task.id)}><MoreVertIcon /></IconButton>}>{
-                state.editingTaskId === task.id ? (
-                  <TextField defaultValue={task.name} variant="standard" fullWidth autoFocus onBlur={(e) => dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: e.target.value } })} onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: task.id, newName: (e.target as HTMLInputElement).value } }); }} sx={{ ml: 2 }} />
-                ) : (
-                  <ListItemButton selected={task.id === state.activeTaskId} onClick={() => handleSwitchTask(task.id)}>
-                    <ListItemText primary={task.name} />
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      {state.activeTaskId === task.id && (
-                        <ButtonGroup size="small" variant="text" color="inherit" sx={{ mr: 2 }}>
-                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -300000 } })}}>-5m</Button>
-                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: -60000 } })}}>-1m</Button>
-                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 60000 } })}}>+1m</Button>
-                          <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: task.id, amount: 300000 } })}}>+5m</Button>
-                        </ButtonGroup>
-                      )}
-                      <Typography variant="body1" sx={{ fontFamily: 'monospace', minWidth: '80px', textAlign: 'right' }}>{getTaskDisplayedTime(task)}</Typography>
-                    </Box>
-                  </ListItemButton>
-                )}
-              </ListItem>
-            ))}
+            {taskTree.map(task => renderTask(task, 0))}
           </List>
           <Box sx={{ mt: 2, display: 'flex', alignItems: 'center' }}>
             {isAdding ? (
-              <TextField label="新しいタスク名" variant="standard" fullWidth autoFocus value={newTaskName} onChange={(e) => setNewTaskName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddPlannedTask(); }} onBlur={() => setIsAdding(false)} />
+              <TextField label="新しい親タスク名" variant="standard" fullWidth autoFocus value={newTaskName} onChange={(e) => setNewTaskName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddPlannedTask(); }} onBlur={() => setIsAdding(false)} />
             ) : (
               <>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setIsAdding(true)}>タスクを追加</Button>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setIsAdding(true)}>親タスクを追加</Button>
                 <Button variant="outlined" startIcon={<BoltIcon />} onClick={handleQuickAddTask} sx={{ ml: 2 }}>割り込み開始</Button>
               </>
             )}
