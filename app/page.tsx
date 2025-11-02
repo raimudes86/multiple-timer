@@ -9,16 +9,15 @@ import {
   ListItemButton,
   ListItemText,
   Box,
+  CircularProgress, // ローディング表示用
 } from '@mui/material';
 
-// データ構造の定義を更新
 interface Task {
   id: number;
   name: string;
-  elapsedTime: number; // 経過時間（秒）
+  elapsedTime: number;
 }
 
-// 固定のタスクリストを更新
 const initialTasks: Task[] = [
   { id: 1, name: '開発', elapsedTime: 0 },
   { id: 2, name: '会議', elapsedTime: 0 },
@@ -26,7 +25,6 @@ const initialTasks: Task[] = [
   { id: 4, name: '未分類', elapsedTime: 0 },
 ];
 
-// 秒数を HH:MM:SS 形式にフォーマットするヘルパー関数
 const formatTime = (totalSeconds: number) => {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -41,9 +39,36 @@ const formatTime = (totalSeconds: number) => {
 export default function HomePage() {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [activeTaskId, setActiveTaskId] = useState<number>(4);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-  // タイマー機能
+  // localStorageからデータを読み込むEffect
   useEffect(() => {
+    try {
+      const savedTasks = localStorage.getItem('tasks');
+      const savedActiveTaskId = localStorage.getItem('activeTaskId');
+
+      if (savedTasks) {
+        setTasks(JSON.parse(savedTasks));
+      }
+      if (savedActiveTaskId) {
+        setActiveTaskId(JSON.parse(savedActiveTaskId));
+      }
+    } catch (error) {
+      console.error("Failed to load data from localStorage", error);
+    }
+    setIsLoaded(true);
+  }, []);
+
+  // localStorageにデータを保存するEffect
+  useEffect(() => {
+    if (!isLoaded) return;
+    localStorage.setItem('tasks', JSON.stringify(tasks));
+    localStorage.setItem('activeTaskId', JSON.stringify(activeTaskId));
+  }, [tasks, activeTaskId, isLoaded]);
+
+  // タイマー機能のEffect
+  useEffect(() => {
+    if (!isLoaded) return;
     const interval = setInterval(() => {
       setTasks(prevTasks =>
         prevTasks.map(task =>
@@ -54,13 +79,33 @@ export default function HomePage() {
       );
     }, 1000);
 
-    // コンポーネントのクリーンアップ時にインターバルをクリア
     return () => clearInterval(interval);
-  }, [activeTaskId]); // activeTaskIdが変わるたびにタイマーを再設定
+  }, [activeTaskId, isLoaded]);
 
   const handleTaskClick = (taskId: number) => {
     setActiveTaskId(taskId);
   };
+
+  // 読み込みが完了するまでローディング画面を表示
+  if (!isLoaded) {
+    return (
+      <Container maxWidth="sm">
+        <Box
+          sx={{
+            my: 4,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '80vh',
+          }}
+        >
+          <CircularProgress />
+          <Typography sx={{ mt: 2 }}>Loading...</Typography>
+        </Box>
+      </Container>
+    );
+  }
 
   return (
     <Container maxWidth="sm">
