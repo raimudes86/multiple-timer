@@ -20,6 +20,7 @@ import {
 import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import BoltIcon from '@mui/icons-material/Bolt'; // 稲妻アイコン
 
 // --- State, Actions, and Reducer ---
 interface Task {
@@ -42,7 +43,8 @@ type AppAction =
   | { type: 'TICK' }
   | { type: 'START_EDIT'; payload: number }
   | { type: 'UPDATE_TASK_NAME'; payload: { id: number; newName: string } }
-  | { type: 'ADD_TASK'; payload: string };
+  | { type: 'ADD_PLANNED_TASK'; payload: string }
+  | { type: 'ADD_QUICK_TASK' };
 
 const initialTemplateTasks: Task[] = [
   { id: 1, name: '朝・夕会関連', elapsedTime: 0, isTemplate: true },
@@ -52,7 +54,7 @@ const initialTemplateTasks: Task[] = [
 
 const initialState: AppState = {
   tasks: initialTemplateTasks,
-  activeTaskId: 1, // デフォルトを「朝・夕会関連」に
+  activeTaskId: 1,
   editingTaskId: null,
 };
 
@@ -82,10 +84,19 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
           task.id === action.payload.id ? { ...task, name: action.payload.newName } : task
         ),
       };
-    case 'ADD_TASK':
-      const newId = (state.tasks.length > 0 ? Math.max(...state.tasks.map(t => t.id)) : 0) + 1;
-      const newTask: Task = { id: newId, name: action.payload, elapsedTime: 0, isTemplate: false };
-      return { ...state, tasks: [...state.tasks, newTask] };
+    case 'ADD_PLANNED_TASK':
+      const newPlannedId = (state.tasks.length > 0 ? Math.max(...state.tasks.map(t => t.id)) : 0) + 1;
+      const newPlannedTask: Task = { id: newPlannedId, name: action.payload, elapsedTime: 0, isTemplate: false };
+      return { ...state, tasks: [...state.tasks, newPlannedTask] };
+    case 'ADD_QUICK_TASK':
+      const quickTaskName = `臨時タスク ${state.tasks.filter(t => t.name.startsWith('臨時タスク')).length + 1}`;
+      const newQuickId = (state.tasks.length > 0 ? Math.max(...state.tasks.map(t => t.id)) : 0) + 1;
+      const newQuickTask: Task = { id: newQuickId, name: quickTaskName, elapsedTime: 0, isTemplate: false };
+      return {
+        ...state,
+        tasks: [...state.tasks, newQuickTask],
+        activeTaskId: newQuickId, // タイマーを切り替える
+      };
     default:
       return state;
   }
@@ -138,17 +149,11 @@ export default function HomePage() {
     }
   };
 
-  const handleAddTask = () => {
+  const handleAddPlannedTask = () => {
     if (newTaskName.trim() !== '') {
-      dispatch({ type: 'ADD_TASK', payload: newTaskName });
+      dispatch({ type: 'ADD_PLANNED_TASK', payload: newTaskName });
       setNewTaskName('');
-      setIsAdding(false);
-    }
-  };
-
-  const handleResetDay = () => {
-    if (window.confirm('新しい一日を開始しますか？\n本日追加したタスクはリセットされます。')) {
-      dispatch({ type: 'START_NEW_DAY' });
+      setIsAdding(false); // フォームを閉じる処理を復活
     }
   };
 
@@ -166,7 +171,7 @@ export default function HomePage() {
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             Time Logger
           </Typography>
-          <IconButton color="inherit" onClick={handleResetDay}>
+          <IconButton color="inherit" onClick={() => { if (window.confirm('新しい一日を開始しますか？\n本日追加したタスクはリセットされます。')) dispatch({ type: 'START_NEW_DAY' }); }}>
             <RefreshIcon />
           </IconButton>
         </Toolbar>
@@ -211,15 +216,22 @@ export default function HomePage() {
             ))}
           </List>
 
-          <Box sx={{ mt: 2 }}>
+          <Box sx={{ mt: 2, display: 'flex', alignItems: 'center' }}>
             {isAdding ? (
               <TextField label="新しいタスク名" variant="standard" fullWidth autoFocus value={newTaskName}
                 onChange={(e) => setNewTaskName(e.target.value)}
-                onBlur={() => setIsAdding(false)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleAddTask(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddPlannedTask(); }}
+                onBlur={() => setIsAdding(false)} // フォーカスが外れたらボタンに戻る
               />
             ) : (
-              <Button startIcon={<AddIcon />} onClick={() => setIsAdding(true)}>タスクを追加</Button>
+              <>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setIsAdding(true)}>
+                  タスクを追加
+                </Button>
+                <Button variant="outlined" startIcon={<BoltIcon />} onClick={() => dispatch({ type: 'ADD_QUICK_TASK' })} sx={{ ml: 2 }}>
+                  割り込み開始
+                </Button>
+              </>
             )}
           </Box>
         </Box>
