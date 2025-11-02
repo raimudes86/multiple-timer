@@ -259,6 +259,8 @@ export default function HomePage() {
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [menuTaskId, setMenuTaskId] = useState<null | number>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 🚨 修正: 時間調整ボタンの表示/非表示を制御する新しいステート
+  const [expandedTimeButtonId, setExpandedTimeButtonId] = useState<number | null>(null);
 
   useEffect(() => {
     try {
@@ -320,6 +322,8 @@ export default function HomePage() {
     const hasChildren = state.tasks.some(t => t.parentId === newTaskId);
     if (hasChildren || state.editingTaskId || state.activeTaskId === newTaskId) return;
     dispatch({ type: 'SWITCH_TASK', payload: { newTaskId, switchTime: Date.now() } });
+    // 🚨 修正: タスクが切り替わったら、展開状態はリセット
+    setExpandedTimeButtonId(null);
   };
   const handleAddPlannedTask = () => {
     if (newTaskName.trim() !== '') {
@@ -387,6 +391,8 @@ export default function HomePage() {
     const isTopLevel = item.parentId === null;
     const isGrouping = item.type === 'grouping';
     const canBeActive = item.type === 'task';
+    // 🚨 修正: 展開条件をisExpanded変数に格納
+    const isExpanded = state.activeTaskId === item.id && expandedTimeButtonId === item.id;
 
     if (state.editingTaskId === item.id) {
       return <ListItem key={item.id} sx={{ pl: level * 4 }}><TextField defaultValue={item.name} variant="standard" fullWidth autoFocus onBlur={(e) => dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: item.id, newName: (e.target as HTMLInputElement).value } })} onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: item.id, newName: (e.target as HTMLInputElement).value } }); }} /></ListItem>;
@@ -430,16 +436,42 @@ export default function HomePage() {
               }}
             >
               <ListItemText primary={item.name} primaryTypographyProps={{ fontWeight: 'normal' }} />
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                {state.activeTaskId === item.id && (
-                  <ButtonGroup size="small" variant="text" color="inherit" sx={{ mr: 2 }}>
+              {/* 🚨 修正: ボタン表示をisExpandedで制御し、時間表示BoxにonClickを追加 */}
+              <Box 
+                  sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      // 展開時に幅を広げる
+                      minWidth: isExpanded ? '300px' : '100px', 
+                      justifyContent: 'flex-end',
+                  }}
+              >
+                {isExpanded && (
+                  <ButtonGroup size="small" variant="text" color="inherit" sx={{ mr: 1, minWidth: '180px' }}>
                     <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: -300000 } })}}>-5m</Button>
                     <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: -60000 } })}}>-1m</Button>
                     <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: 60000 } })}}>+1m</Button>
                     <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: 300000 } })}}>+5m</Button>
                   </ButtonGroup>
                 )}
-                <Typography variant="body1" sx={{ fontFamily: 'monospace', minWidth: '80px', textAlign: 'right' }}>{formatTime(getTaskDisplayedTime(item, item.children))}</Typography>
+                <Box 
+                    onClick={(e) => {
+                        e.stopPropagation(); // ListItemButtonのタスク切り替えを抑制
+                        if (state.activeTaskId === item.id) {
+                            // アクティブタスクの場合のみ、展開状態を切り替える
+                            setExpandedTimeButtonId(prevId => prevId === item.id ? null : item.id);
+                        }
+                    }}
+                    sx={{ 
+                        cursor: state.activeTaskId === item.id ? 'pointer' : 'default',
+                        minWidth: '80px', 
+                        textAlign: 'right'
+                    }}
+                >
+                    <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
+                        {formatTime(getTaskDisplayedTime(item, item.children))}
+                    </Typography>
+                </Box>
               </Box>
             </ListItemButton>
           </ListItem>
@@ -475,16 +507,42 @@ export default function HomePage() {
               }}
             >
               <ListItemText primary={item.name} primaryTypographyProps={{ fontWeight: 'normal' }} />
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                {state.activeTaskId === item.id && (
-                  <ButtonGroup size="small" variant="text" color="inherit" sx={{ mr: 2 }}>
+              {/* 🚨 修正: ボタン表示をisExpandedで制御し、時間表示BoxにonClickを追加 */}
+              <Box 
+                  sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      // 展開時に幅を広げる
+                      minWidth: isExpanded ? '300px' : '100px', 
+                      justifyContent: 'flex-end',
+                  }}
+              >
+                {isExpanded && (
+                  <ButtonGroup size="small" variant="text" color="inherit" sx={{ mr: 1, minWidth: '180px' }}>
                     <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: -300000 } })}}>-5m</Button>
                     <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: -60000 } })}}>-1m</Button>
                     <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: 60000 } })}}>+1m</Button>
                     <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: 300000 } })}}>+5m</Button>
                   </ButtonGroup>
                 )}
-                <Typography variant="body1" sx={{ fontFamily: 'monospace', minWidth: '80px', textAlign: 'right' }}>{formatTime(getTaskDisplayedTime(item, item.children))}</Typography>
+                <Box 
+                    onClick={(e) => {
+                        e.stopPropagation(); // ListItemButtonのタスク切り替えを抑制
+                        if (state.activeTaskId === item.id) {
+                            // アクティブタスクの場合のみ、展開状態を切り替える
+                            setExpandedTimeButtonId(prevId => prevId === item.id ? null : item.id);
+                        }
+                    }}
+                    sx={{ 
+                        cursor: state.activeTaskId === item.id ? 'pointer' : 'default',
+                        minWidth: '80px', 
+                        textAlign: 'right'
+                    }}
+                >
+                    <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
+                        {formatTime(getTaskDisplayedTime(item, item.children))}
+                    </Typography>
+                </Box>
               </Box>
             </ListItemButton>
           </ListItem>
