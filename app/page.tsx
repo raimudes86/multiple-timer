@@ -167,7 +167,8 @@ export default function HomePage() {
   const getTaskDisplayedTime = (task: Task) => {
     let displayedTime = task.elapsedTime;
     if (task.id === state.activeTaskId && !state.editingTaskId) {
-      displayedTime += (currentTime - state.sessionStartTime);
+      const sessionDuration = Math.max(0, currentTime - state.sessionStartTime);
+      displayedTime += sessionDuration;
     }
     return formatTime(displayedTime);
   };
