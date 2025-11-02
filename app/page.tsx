@@ -36,7 +36,6 @@ interface Task {
   id: number;
   name: string;
   elapsedTime: number; // ms
-  isTemplate: boolean;
   parentId: number | null;
 }
 
@@ -59,19 +58,12 @@ type AppAction =
   | { type: 'ADD_QUICK_SUB_TASK'; payload: { parentId: number; switchTime: number } }
   | { type: 'ADJUST_TIME'; payload: { taskId: number; amount: number } }
   | { type: 'RESET_TIME'; payload: number }
-  | { type: 'DELETE_TASK'; payload: number }
-  | { type: 'ADD_TEMPLATE_TASK'; payload: string }
-  | { type: 'UPDATE_TEMPLATE_TASK'; payload: { id: number; newName: string } }
-  | { type: 'DELETE_TEMPLATE_TASK'; payload: number };
+  | { type: 'DELETE_TASK'; payload: number };
 
-const initialTemplateTasks: Task[] = [
-  { id: 1, name: '朝・夕会関連', elapsedTime: 0, isTemplate: true, parentId: null },
-  { id: 2, name: '休憩', elapsedTime: 0, isTemplate: true, parentId: null },
-  { id: 3, name: '未分類', elapsedTime: 0, isTemplate: true, parentId: null },
-];
+
 
 const initialState: AppState = {
-  tasks: initialTemplateTasks,
+  tasks: [],
   activeTaskId: 1,
   sessionStartTime: Date.now(),
   editingTaskId: null,
@@ -84,8 +76,13 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
     case 'LOAD_STATE':
       return { ...state, ...action.payload, editingTaskId: null };
     case 'START_NEW_DAY':
-      const resetTemplateTasks = initialTemplateTasks.map(t => ({ ...t, elapsedTime: 0 }));
-      return { ...initialState, tasks: resetTemplateTasks, sessionStartTime: Date.now() };
+      const newDayInitialTasks: Task[] = [
+        { id: 1, name: '毎日行うこと', elapsedTime: 0, parentId: null },
+        { id: 2, name: '朝・夕会関連', elapsedTime: 0, parentId: 1 },
+        { id: 3, name: '休憩', elapsedTime: 0, parentId: 1 },
+        { id: 4, name: '未分類', elapsedTime: 0, parentId: 1 },
+      ];
+      return { ...initialState, tasks: newDayInitialTasks, activeTaskId: 1, sessionStartTime: Date.now() };
     case 'SWITCH_TASK':
       if (state.editingTaskId) return state;
       const duration = action.payload.switchTime - state.sessionStartTime;
@@ -98,10 +95,10 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
     case 'UPDATE_TASK_NAME':
       return { ...state, editingTaskId: null, tasks: state.tasks.map(task => task.id === action.payload.id ? { ...task, name: action.payload.newName } : task) };
     case 'ADD_PLANNED_TASK':
-      const newPlannedTask: Task = { id: getNewId(), name: action.payload, elapsedTime: 0, isTemplate: false, parentId: null };
+      const newPlannedTask: Task = { id: getNewId(), name: action.payload, elapsedTime: 0, parentId: null };
       return { ...state, tasks: [...state.tasks, newPlannedTask] };
     case 'ADD_SUB_TASK':
-      const newSubTask: Task = { id: getNewId(), name: action.payload.name, elapsedTime: 0, isTemplate: false, parentId: action.payload.parentId };
+      const newSubTask: Task = { id: getNewId(), name: action.payload.name, elapsedTime: 0, parentId: action.payload.parentId };
       return { ...state, tasks: [...state.tasks, newSubTask] };
     case 'ADD_QUICK_TASK':
     case 'ADD_QUICK_SUB_TASK':
@@ -111,7 +108,7 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       const count = state.tasks.filter(t => t.name.startsWith(namePrefix) && t.parentId === parentId).length + 1;
       const quickTaskName = `${namePrefix} ${count}`;
       const newQuickId = getNewId();
-      const newQuickTask: Task = { id: newQuickId, name: quickTaskName, elapsedTime: 0, isTemplate: false, parentId };
+      const newQuickTask: Task = { id: newQuickId, name: quickTaskName, elapsedTime: 0, parentId };
       const durationForQuickAdd = action.payload.switchTime - state.sessionStartTime;
       const tasksWithOldTime = state.tasks.map(task =>
         task.id === state.activeTaskId ? { ...task, elapsedTime: task.elapsedTime + durationForQuickAdd } : task
@@ -131,18 +128,10 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       }
       const remainingTasks = state.tasks.filter(task => !descendantIds.has(task.id));
       if (descendantIds.has(state.activeTaskId)) {
-        const defaultTask = state.tasks.find(t => t.id === 3);
-        return { ...state, tasks: remainingTasks, activeTaskId: defaultTask.id, sessionStartTime: Date.now() };
+        const newActiveTask = remainingTasks.length > 0 ? remainingTasks[0] : { id: getNewId(), name: '未分類', elapsedTime: 0, parentId: null };
+        return { ...state, tasks: remainingTasks.length > 0 ? remainingTasks : [newActiveTask], activeTaskId: newActiveTask.id, sessionStartTime: Date.now() };
       }
       return { ...state, tasks: remainingTasks };
-    case 'ADD_TEMPLATE_TASK':
-      const newTemplateTask: Task = { id: getNewId(), name: action.payload, elapsedTime: 0, isTemplate: true, parentId: null };
-      return { ...state, tasks: [...state.tasks, newTemplateTask] };
-    case 'UPDATE_TEMPLATE_TASK':
-      return { ...state, tasks: state.tasks.map(task => task.id === action.payload.id ? { ...task, name: action.payload.newName } : task) };
-    case 'DELETE_TEMPLATE_TASK':
-      if (state.tasks.filter(t => t.isTemplate).length <= 1) return state;
-      return { ...state, tasks: state.tasks.filter(t => t.id !== action.payload) };
     default:
       return state;
   }
@@ -170,9 +159,54 @@ export default function HomePage() {
 
   useEffect(() => {
     try {
-      const savedState = { tasks: JSON.parse(localStorage.getItem('tasks') || 'null'), activeTaskId: JSON.parse(localStorage.getItem('activeTaskId') || 'null'), sessionStartTime: JSON.parse(localStorage.getItem('sessionStartTime') || 'null') };
-      if (savedState.tasks && savedState.activeTaskId && savedState.sessionStartTime) dispatch({ type: 'LOAD_STATE', payload: savedState }); else dispatch({ type: 'START_NEW_DAY' });
-    } catch (error) { console.error("Failed to load data", error); }
+      const savedTasks = localStorage.getItem('tasks');
+      const savedActiveTaskId = localStorage.getItem('activeTaskId');
+      const savedSessionStartTime = localStorage.getItem('sessionStartTime');
+
+      if (savedTasks && savedActiveTaskId && savedSessionStartTime) {
+        dispatch({
+          type: 'LOAD_STATE',
+          payload: {
+            tasks: JSON.parse(savedTasks),
+            activeTaskId: JSON.parse(savedActiveTaskId),
+            sessionStartTime: JSON.parse(savedSessionStartTime),
+          },
+        });
+      } else {
+        // If no saved state, initialize with a default "毎日行うこと" task
+        const initialTasks: Task[] = [
+          { id: 1, name: '毎日行うこと', elapsedTime: 0, parentId: null },
+          { id: 2, name: '朝・夕会関連', elapsedTime: 0, parentId: 1 },
+          { id: 3, name: '休憩', elapsedTime: 0, parentId: 1 },
+          { id: 4, name: '未分類', elapsedTime: 0, parentId: 1 },
+        ];
+        dispatch({
+          type: 'LOAD_STATE',
+          payload: {
+            tasks: initialTasks,
+            activeTaskId: 1,
+            sessionStartTime: Date.now(),
+          },
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load data", error);
+      // Fallback to initial state if loading fails, creating a default task structure
+      const initialTasks: Task[] = [
+        { id: 1, name: '毎日行うこと', elapsedTime: 0, parentId: null },
+        { id: 2, name: '朝・夕会関連', elapsedTime: 0, parentId: 1 },
+        { id: 3, name: '休憩', elapsedTime: 0, parentId: 1 },
+        { id: 4, name: '未分類', elapsedTime: 0, parentId: 1 },
+      ];
+      dispatch({
+        type: 'LOAD_STATE',
+        payload: {
+          tasks: initialTasks,
+          activeTaskId: 1,
+          sessionStartTime: Date.now(),
+        },
+      });
+    }
     setIsLoaded(true);
   }, []);
 
@@ -309,15 +343,9 @@ export default function HomePage() {
         </Box>
       </Container>
       <Menu anchorEl={menuAnchorEl} open={Boolean(menuAnchorEl)} onClose={handleMenuClose}>
-        {selectedMenuTask?.isTemplate ? (
-          <MenuItem onClick={() => { dispatch({ type: 'RESET_TIME', payload: menuTaskId }); handleMenuClose(); }}><AccessTimeIcon sx={{ mr: 1 }} fontSize="small" />時間をリセット</MenuItem>
-        ) : (
-          [
-            <MenuItem key="edit" onClick={() => { dispatch({ type: 'START_EDIT', payload: menuTaskId }); handleMenuClose(); }}><EditIcon sx={{ mr: 1 }} fontSize="small" />名前を編集</MenuItem>,
-            <MenuItem key="reset" onClick={() => { dispatch({ type: 'RESET_TIME', payload: menuTaskId }); handleMenuClose(); }}><AccessTimeIcon sx={{ mr: 1 }} fontSize="small" />時間をリセット</MenuItem>,
-            <MenuItem key="delete" sx={{ color: 'error.main' }} onClick={() => { if(window.confirm(`タスク「${selectedMenuTask?.name}」を削除しますか？`)) dispatch({ type: 'DELETE_TASK', payload: menuTaskId }); handleMenuClose(); }}><DeleteIcon sx={{ mr: 1 }} fontSize="small" />タスクを削除</MenuItem>
-          ]
-        )}
+        <MenuItem onClick={() => { dispatch({ type: 'START_EDIT', payload: menuTaskId }); handleMenuClose(); }}><EditIcon sx={{ mr: 1 }} fontSize="small" />名前を編集</MenuItem>,
+        <MenuItem onClick={() => { dispatch({ type: 'RESET_TIME', payload: menuTaskId }); handleMenuClose(); }}><AccessTimeIcon sx={{ mr: 1 }} fontSize="small" />時間をリセット</MenuItem>,
+        <MenuItem sx={{ color: 'error.main' }} onClick={() => { if(window.confirm(`タスク「${selectedMenuTask?.name}」を削除しますか？`)) dispatch({ type: 'DELETE_TASK', payload: menuTaskId }); handleMenuClose(); }}><DeleteIcon sx={{ mr: 1 }} fontSize="small" />タスクを削除</MenuItem>
       </Menu>
     </Box>
   );

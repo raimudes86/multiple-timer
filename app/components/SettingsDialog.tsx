@@ -24,7 +24,6 @@ import AddIcon from '@mui/icons-material/Add';
 interface Task {
   id: number;
   name: string;
-  isTemplate: boolean;
 }
 
 interface SettingsDialogProps {
@@ -35,31 +34,7 @@ interface SettingsDialogProps {
 }
 
 export default function SettingsDialog({ open, onClose, tasks, dispatch }: SettingsDialogProps) {
-  const templateTasks = tasks.filter(t => t.isTemplate);
-
-  const [newTemplateName, setNewTemplateName] = useState('');
-  const [editingTemplate, setEditingTemplate] = useState<Task | null>(null);
   const [importText, setImportText] = useState('');
-
-  const handleAddTemplate = () => {
-    if (newTemplateName.trim() !== '') {
-      dispatch({ type: 'ADD_TEMPLATE_TASK', payload: newTemplateName });
-      setNewTemplateName('');
-    }
-  };
-
-  const handleUpdateTemplate = () => {
-    if (editingTemplate && editingTemplate.name.trim() !== '') {
-      dispatch({ type: 'UPDATE_TEMPLATE_TASK', payload: { id: editingTemplate.id, newName: editingTemplate.name } });
-      setEditingTemplate(null);
-    }
-  };
-
-  const handleDeleteTemplate = (id: number) => {
-    if (window.confirm('このテンプレートを削除しますか？\n（このテンプレートの今日の記録もリセットされます）')) {
-      dispatch({ type: 'DELETE_TEMPLATE_TASK', payload: id });
-    }
-  };
 
   const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -99,54 +74,6 @@ export default function SettingsDialog({ open, onClose, tasks, dispatch }: Setti
         </Toolbar>
       </AppBar>
       <Box sx={{ p: 2 }}>
-        {/* Template Task Management */}
-        <Typography variant="h6" gutterBottom>テンプレートタスクの管理</Typography>
-        <List>
-          {templateTasks.map(task => (
-            <ListItem key={task.id} secondaryAction={
-              editingTemplate?.id !== task.id && (
-                <>
-                  <IconButton edge="end" onClick={() => setEditingTemplate(task)}>
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton edge="end" onClick={() => handleDeleteTemplate(task.id)}>
-                    <DeleteIcon />
-                  </IconButton>
-                </>
-              )
-            }>
-              {editingTemplate?.id === task.id ? (
-                <TextField
-                  variant="standard"
-                  fullWidth
-                  autoFocus
-                  value={editingTemplate.name}
-                  onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateTemplate(); }}
-                  onBlur={handleUpdateTemplate}
-                />
-              ) : (
-                <ListItemText primary={task.name} />
-              )}
-            </ListItem>
-          ))}
-        </List>
-        <Box sx={{ mt: 2, display: 'flex', alignItems: 'flex-end' }}>
-          <TextField
-            label="新しいテンプレート名"
-            variant="standard"
-            fullWidth
-            value={newTemplateName}
-            onChange={(e) => setNewTemplateName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleAddTemplate(); }}
-          />
-          <Button startIcon={<AddIcon />} onClick={handleAddTemplate} sx={{ ml: 2 }}>
-            追加
-          </Button>
-        </Box>
-
-        <Divider sx={{ my: 4 }} />
-
         {/* Import from Text */}
         <Typography variant="h6" gutterBottom>テキストからタスクをインポート</Typography>
         <TextField
