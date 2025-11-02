@@ -34,7 +34,6 @@ import SettingsDialog from './components/SettingsDialog';
 
 // --- State, Actions, and Reducer ---
 
-// 🌟 1. 初期タスクのリストを外部定数として定義 (保守性向上のため)
 const DEFAULT_INITIAL_TASKS: AppItem[] = [
     { id: 1, name: '毎日行うこと', type: 'grouping', parentId: null },
     { id: 2, name: '朝・夕会関連', type: 'task', elapsedTime: 0, parentId: 1 },
@@ -148,7 +147,6 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       const durationForQuickAdd = action.payload.switchTime - state.sessionStartTime;
       const tasksWithOldTime = state.tasks.map(task => {
       if (task.id === state.activeTaskId && task.type === 'task') {
-        // ✅ このブロック内では task が TimedTaskItem であることが保証される
         return { ...task, elapsedTime: task.elapsedTime + durationForQuickAdd };
       }
         return task;
@@ -167,19 +165,41 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
         for (const child of children) descendantIds.add(child.id);
       }
       const remainingTasks = state.tasks.filter(task => !descendantIds.has(task.id));
-      if (descendantIds.has(state.activeTaskId)) {
-        const newActiveTask: TimedTaskItem = remainingTasks.length > 0 && remainingTasks[0].type === 'task' ? remainingTasks[0] as TimedTaskItem : { id: getNewId(), name: '未分類', type: 'task', elapsedTime: 0, parentId: null };
-        return { ...state, tasks: remainingTasks.length > 0 ? remainingTasks : [newActiveTask], activeTaskId: newActiveTask.id, sessionStartTime: Date.now() };
+      
+      if (state.activeTaskId !== null && descendantIds.has(state.activeTaskId)) {
+        // 残っているタスクの中から最初の TimedTaskItem を探す
+        const firstTimed = remainingTasks.find((t): t is TimedTaskItem => t.type === 'task');
+
+        if (firstTimed) {
+          return { ...state, tasks: remainingTasks, activeTaskId: firstTimed.id, sessionStartTime: Date.now() };
+        }
+
+        // TimedTaskItem が一つも残っていない場合、新しい未分類タスクを作成
+        const newUncategorized: TimedTaskItem = {
+          id: getNewId(),
+          name: '未分類',
+          type: 'task',
+          elapsedTime: 0,
+          parentId: null,
+        };
+        const newTasksList = [...remainingTasks, newUncategorized];
+        return { ...state, tasks: newTasksList, activeTaskId: newUncategorized.id, sessionStartTime: Date.now() };
       }
+      
       return { ...state, tasks: remainingTasks, activeTaskId: state.activeTaskId };
+
     case 'STOP_ALL_TIMERS':
       if (state.activeTaskId === null) return state; // No active task to stop
 
       const stopDuration = Date.now() - state.sessionStartTime;
-      const tasksAfterStop = state.tasks.map(task =>
-        task.id === state.activeTaskId ? { ...task, elapsedTime: task.elapsedTime + stopDuration } : task
-      );
+      const tasksAfterStop = state.tasks.map(task => {
+        if (task.id === state.activeTaskId && task.type === 'task') {
+            return { ...task, elapsedTime: task.elapsedTime + stopDuration };
+        }
+        return task;
+      });
       return { ...state, tasks: tasksAfterStop, activeTaskId: null, sessionStartTime: Date.now() };
+
     case 'IMPORT_TASKS_BATCH':
       let currentMaxId = getNewId() - 1; // getNewId() returns maxId + 1, so subtract 1
       const newTasks: AppItem[] = [];
@@ -308,7 +328,7 @@ export default function HomePage() {
       setAddingSubtaskTo(null);
     }
   };
-  // 🌟 handleAddGrouping関数を修正後の定義で追加
+  // 🌟 handleAddGrouping関数
   const handleAddGrouping = () => {
     if (newTaskName.trim() !== '') {
       dispatch({ type: 'ADD_GROUPING', payload: newTaskName });
