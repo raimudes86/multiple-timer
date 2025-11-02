@@ -34,6 +34,7 @@ import SettingsDialog from './components/SettingsDialog';
 
 // --- State, Actions, and Reducer ---
 
+// 🌟 1. 初期タスクのリストを外部定数として定義 (保守性向上のため)
 const DEFAULT_INITIAL_TASKS: AppItem[] = [
     { id: 1, name: '毎日行うこと', type: 'grouping', parentId: null },
     { id: 2, name: '朝・夕会関連', type: 'task', elapsedTime: 0, parentId: 1 },
@@ -147,6 +148,7 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       const durationForQuickAdd = action.payload.switchTime - state.sessionStartTime;
       const tasksWithOldTime = state.tasks.map(task => {
       if (task.id === state.activeTaskId && task.type === 'task') {
+        // ✅ 修正済み
         return { ...task, elapsedTime: task.elapsedTime + durationForQuickAdd };
       }
         return task;
@@ -166,6 +168,7 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       }
       const remainingTasks = state.tasks.filter(task => !descendantIds.has(task.id));
       
+      // 🌟 修正済み (1): アクティブタスクが削除された場合のロジックを型安全に修正 🌟
       if (state.activeTaskId !== null && descendantIds.has(state.activeTaskId)) {
         // 残っているタスクの中から最初の TimedTaskItem を探す
         const firstTimed = remainingTasks.find((t): t is TimedTaskItem => t.type === 'task');
@@ -185,6 +188,7 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
         const newTasksList = [...remainingTasks, newUncategorized];
         return { ...state, tasks: newTasksList, activeTaskId: newUncategorized.id, sessionStartTime: Date.now() };
       }
+      // ----------------------------------------------------------------------
       
       return { ...state, tasks: remainingTasks, activeTaskId: state.activeTaskId };
 
@@ -192,12 +196,14 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       if (state.activeTaskId === null) return state; // No active task to stop
 
       const stopDuration = Date.now() - state.sessionStartTime;
+      // 🚨 修正済み (2): map内で activeTaskId と task type の両方をチェックし、型安全を保証 🚨
       const tasksAfterStop = state.tasks.map(task => {
         if (task.id === state.activeTaskId && task.type === 'task') {
             return { ...task, elapsedTime: task.elapsedTime + stopDuration };
         }
         return task;
       });
+      // ----------------------------------------------------------------------
       return { ...state, tasks: tasksAfterStop, activeTaskId: null, sessionStartTime: Date.now() };
 
     case 'IMPORT_TASKS_BATCH':
@@ -338,11 +344,17 @@ export default function HomePage() {
   };
 
   const { taskTree, tasksById } = useMemo(() => {
+    // タスクIDごとに初期化するマップ
     const tasksById = new Map(state.tasks.map(t => [t.id, { ...t, children: [] as (AppItem & { children: AppItem[] })[] }]));
     const tree: (AppItem & { children: AppItem[] })[] = [];
+
     for (const item of tasksById.values()) {
       if (item.parentId) {
-        tasksById.get(item.parentId)?.children.push(item);
+        const parent = tasksById.get(item.parentId);
+        if(parent) {
+            // 🚨 修正済み (1): childrenをpushする際、型を維持したままpush
+            parent.children.push(item);
+        }
       } else {
         tree.push(item);
       }
@@ -380,6 +392,20 @@ export default function HomePage() {
       return <ListItem key={item.id} sx={{ pl: level * 4 }}><TextField defaultValue={item.name} variant="standard" fullWidth autoFocus onBlur={(e) => dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: item.id, newName: (e.target as HTMLInputElement).value } })} onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: item.id, newName: (e.target as HTMLInputElement).value } }); }} /></ListItem>;
     }
 
+    // 🚨 修正済み (2): renderTask内の children の使用に型ガードと分離を適用 🚨
+    const hasChildrenAndIsObject = item.children && item.children.length > 0;
+    
+    const renderChildren = hasChildrenAndIsObject ? (
+      <List disablePadding>
+        {item.children.map(child =>
+          // child は useMemo で children プロパティが追加された型なので、再帰呼び出しでキャストが必要
+          renderTask(child as AppItem & { children: AppItem[] }, level + 1)
+        )}
+      </List>
+    ) : null;
+    // ----------------------------------------------------------------------
+
+
     return isTopLevel ? (
       <Paper key={item.id} elevation={2} sx={{ mb: 2, p: 1 }}>
         {isGrouping ? (
@@ -399,7 +425,8 @@ export default function HomePage() {
               onClick={() => canBeActive && handleSwitchTask(item.id)}
               sx={{
                 pl: isTopLevel ? 2 : level * 2,
-                ...(isTopLevel && item.children.length > 0 && { borderBottom: '1px solid', borderColor: 'divider' }),
+                // 🚨 修正済み (3): スプレッド構文の外側で条件を評価し、オブジェクトを返す
+                ...(isTopLevel && hasChildrenAndIsObject ? { borderBottom: '1px solid', borderColor: 'divider' } : {}),
               }}
             >
               <ListItemText primary={item.name} primaryTypographyProps={{ fontWeight: 'normal' }} />
@@ -422,7 +449,7 @@ export default function HomePage() {
             <TextField label="新しいサブタスク名" variant="standard" fullWidth autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubtask(item.id, (e.target as HTMLInputElement).value); }} />
           </ListItem>
         )}
-        {item.children.length > 0 && <List disablePadding>{item.children.map(child => renderTask(child, level + 1))}</List>}
+        {renderChildren}
       </Paper>
     ) : (
       <Box key={item.id} sx={{ mb: 0 }}>
@@ -443,7 +470,8 @@ export default function HomePage() {
               onClick={() => canBeActive && handleSwitchTask(item.id)}
               sx={{
                 pl: isTopLevel ? 2 : level * 2,
-                ...(isTopLevel && item.children.length > 0 && { borderBottom: '1px solid', borderColor: 'divider' }),
+                // 🚨 修正済み (4): スプレッド構文の外側で条件を評価し、オブジェクトを返す
+                ...(isTopLevel && hasChildrenAndIsObject ? { borderBottom: '1px solid', borderColor: 'divider' } : {}),
               }}
             >
               <ListItemText primary={item.name} primaryTypographyProps={{ fontWeight: 'normal' }} />
@@ -466,7 +494,7 @@ export default function HomePage() {
             <TextField label="新しいサブタスク名" variant="standard" fullWidth autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubtask(item.id, (e.target as HTMLInputElement).value); }} />
           </ListItem>
         )}
-        {item.children.length > 0 && <List disablePadding>{item.children.map(child => renderTask(child, level + 1))}</List>}
+        {renderChildren}
       </Box>
     );
   };
@@ -498,18 +526,40 @@ export default function HomePage() {
       <Menu anchorEl={menuAnchorEl} open={Boolean(menuAnchorEl)} onClose={handleMenuClose}>
         {[
           selectedMenuTask && selectedMenuTask.parentId === null && (
-            <MenuItem key="add-subtask" onClick={() => { setAddingSubtaskTo(selectedMenuTask.id); handleMenuClose(); }}><AddCircleOutlineIcon sx={{ mr: 1 }} fontSize="small" />サブタスクを追加</MenuItem>
+            <MenuItem key="add-subtask" onClick={() => { 
+              if (menuTaskId !== null) setAddingSubtaskTo(menuTaskId); 
+              handleMenuClose(); 
+            }}><AddCircleOutlineIcon sx={{ mr: 1 }} fontSize="small" />サブタスクを追加</MenuItem>
           ),
           selectedMenuTask && selectedMenuTask.parentId === null && (
             <MenuItem key="add-quick-subtask" onClick={() => {
-              dispatch({ type: 'ADD_QUICK_SUB_TASK', payload: { parentId: selectedMenuTask.id, switchTime: Date.now() } });
+              if (menuTaskId !== null) {
+                dispatch({ type: 'ADD_QUICK_SUB_TASK', payload: { parentId: menuTaskId, switchTime: Date.now() } });
+              }
               handleMenuClose();
             }}><BoltIcon sx={{ mr: 1 }} fontSize="small" />クイックサブタスク</MenuItem>
           ),
-          <MenuItem key="edit" onClick={() => { dispatch({ type: 'START_EDIT', payload: menuTaskId }); handleMenuClose(); }}><EditIcon sx={{ mr: 1 }} fontSize="small" />名前を編集</MenuItem>,
+          // 🚨 エラー箇所 (538行目) 修正済み 🚨
+          <MenuItem key="edit" onClick={() => { 
+            if (menuTaskId !== null) { 
+              dispatch({ type: 'START_EDIT', payload: menuTaskId });
+            }
+            handleMenuClose(); 
+          }}><EditIcon sx={{ mr: 1 }} fontSize="small" />名前を編集</MenuItem>,
+          
           selectedMenuTask && selectedMenuTask.type === 'task' && (
-            <MenuItem key="reset" onClick={() => { dispatch({ type: 'RESET_TIME', payload: menuTaskId }); handleMenuClose(); }}><AccessTimeIcon sx={{ mr: 1 }} fontSize="small" />時間をリセット</MenuItem>
-          ),          <MenuItem key="delete" sx={{ color: 'error.main' }} onClick={() => { if(window.confirm(`タスク「${selectedMenuTask?.name}」を削除しますか？`)) dispatch({ type: 'DELETE_TASK', payload: menuTaskId }); handleMenuClose(); }}><DeleteIcon sx={{ mr: 1 }} fontSize="small" />タスクを削除</MenuItem>,
+            <MenuItem key="reset" onClick={() => { 
+              if (menuTaskId !== null) { // 🚨 修正済み (6)
+                dispatch({ type: 'RESET_TIME', payload: menuTaskId });
+              }
+              handleMenuClose(); 
+            }}><AccessTimeIcon sx={{ mr: 1 }} fontSize="small" />時間をリセット</MenuItem>
+          ),          
+          <MenuItem key="delete" sx={{ color: 'error.main' }} onClick={() => { 
+            if(menuTaskId !== null && window.confirm(`タスク「${selectedMenuTask?.name}」を削除しますか？`)) 
+              dispatch({ type: 'DELETE_TASK', payload: menuTaskId }); 
+            handleMenuClose(); 
+          }}><DeleteIcon sx={{ mr: 1 }} fontSize="small" />タスクを削除</MenuItem>,
         ].filter(Boolean)}
       </Menu>
     </Box>
