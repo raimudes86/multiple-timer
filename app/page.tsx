@@ -20,6 +20,7 @@ import {
   Menu,
   MenuItem,
   Paper,
+  keyframes, // 🚨 修正: keyframesをMUIからインポート
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -248,6 +249,13 @@ const formatTime = (totalMilliseconds: number) => {
   return [hours.toString().padStart(2, '0'), minutes.toString().padStart(2, '0'), seconds.toString().padStart(2, '0')].join(':');
 };
 
+// 🚨 新規追加: 強調アニメーションのキーフレーム 🚨
+const pulse = keyframes`
+  0% { transform: scale(1.0); background-color: rgba(255, 255, 0, 0.2); }
+  50% { transform: scale(1.02); background-color: rgba(255, 255, 0, 0.4); }
+  100% { transform: scale(1.0); background-color: rgba(255, 255, 0, 0.2); }
+`;
+
 // --- Component ---
 export default function HomePage() {
   const [state, dispatch] = useReducer(appReducer, initialState);
@@ -387,11 +395,16 @@ export default function HomePage() {
     return <Container maxWidth="sm"><Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}><CircularProgress /></Box></Container>;
   }
 
+  // 🚨 新規追加: アクティブタスク名の取得
+  const activeTask = state.tasks.find(t => t.id === state.activeTaskId);
+  const activeTaskName = activeTask?.name || 'タスク停止中';
+  const isTimerActive = activeTask?.type === 'task';
+
   const renderTask = (item: AppItem & { children: AppItem[] }, level: number) => {
     const isTopLevel = item.parentId === null;
     const isGrouping = item.type === 'grouping';
     const canBeActive = item.type === 'task';
-    // 🚨 修正: 展開条件をisExpanded変数に格納
+    // 🚨 修正: 展開条件をisExpanded変数に格納 (以前のコードから引き続き使用)
     const isExpanded = state.activeTaskId === item.id && expandedTimeButtonId === item.id;
 
     if (state.editingTaskId === item.id) {
@@ -436,12 +449,11 @@ export default function HomePage() {
               }}
             >
               <ListItemText primary={item.name} primaryTypographyProps={{ fontWeight: 'normal' }} />
-              {/* 🚨 修正: ボタン表示をisExpandedで制御し、時間表示BoxにonClickを追加 */}
+              {/* 🚨 修正: ボタン表示をisExpandedで制御し、時間表示BoxにonClickを追加（以前の横並びに戻す） */}
               <Box 
                   sx={{ 
                       display: 'flex', 
                       alignItems: 'center', 
-                      // 展開時に幅を広げる
                       minWidth: isExpanded ? '300px' : '100px', 
                       justifyContent: 'flex-end',
                   }}
@@ -507,12 +519,11 @@ export default function HomePage() {
               }}
             >
               <ListItemText primary={item.name} primaryTypographyProps={{ fontWeight: 'normal' }} />
-              {/* 🚨 修正: ボタン表示をisExpandedで制御し、時間表示BoxにonClickを追加 */}
+              {/* 🚨 修正: ボタン表示をisExpandedで制御し、時間表示BoxにonClickを追加（以前の横並びに戻す） */}
               <Box 
                   sx={{ 
                       display: 'flex', 
                       alignItems: 'center', 
-                      // 展開時に幅を広げる
                       minWidth: isExpanded ? '300px' : '100px', 
                       justifyContent: 'flex-end',
                   }}
@@ -566,7 +577,32 @@ export default function HomePage() {
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} tasks={state.tasks} dispatch={dispatch} />
       <Container maxWidth="sm">
         <Box sx={{ my: 2 }}>
-          <Typography variant="subtitle1" color="text.secondary">現在記録中のタスク: {state.tasks.find(t => t.id === state.activeTaskId)?.name}</Typography>
+          {/* 🚨 修正: 現在のタスク強調表示 (NOW hoge!!!) 🚨 */}
+          <Paper 
+              elevation={4} 
+              sx={{ 
+                  p: 1, 
+                  mb: 2, 
+                  textAlign: 'center',
+                  bgcolor: isTimerActive ? 'warning.light' : 'grey.300',
+                  animation: isTimerActive ? `${pulse} 1.5s infinite` : 'none',
+                  transformOrigin: 'center',
+              }}
+          >
+              <Typography 
+                  variant="h5" 
+                  component="div" 
+                  sx={{ 
+                      fontWeight: 'bold', 
+                      color: 'primary.main',
+                      textShadow: '1px 1px 2px rgba(0,0,0,0.1)',
+                  }}
+              >
+                  {isTimerActive ? `「${activeTaskName}」 進行中` : 'タイマー停止中'}
+              </Typography>
+          </Paper>
+          {/* ------------------------------------------- */}
+          
           <List>
             {taskTree.map(task => renderTask(task, 0))}
           </List>
