@@ -249,6 +249,17 @@ const formatTime = (totalMilliseconds: number) => {
   return [hours.toString().padStart(2, '0'), minutes.toString().padStart(2, '0'), seconds.toString().padStart(2, '0')].join(':');
 };
 
+const formatMinutes = (totalMilliseconds: number) => {
+  const totalMinutes = Math.floor(totalMilliseconds / (1000 * 60));
+  if (totalMinutes < 60) {
+    return `${totalMinutes}分`;
+  } else {
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours}時間${minutes}分`;
+  }
+};
+
 // 🚨 新規追加: 強調アニメーションのキーフレーム 🚨
 const pulse = keyframes`
   0% { transform: scale(1.0); background-color: rgba(255, 255, 0, 0.2); }
@@ -381,12 +392,25 @@ export default function HomePage() {
     let displayedTime = 0;
 
     if (isGrouping) {
-      displayedTime = children.filter(child => child.type === 'task').reduce((acc, child) => acc + (child as TimedTaskItem).elapsedTime, 0);
+      // Iterate through children and account for active child's real-time duration
+      displayedTime = children.filter(child => child.type === 'task').reduce((acc, child) => {
+        let childTime = (child as TimedTaskItem).elapsedTime;
+        if (child.id === state.activeTaskId && child.type === 'task' && !state.editingTaskId) {
+          const sessionDuration = Math.max(0, currentTime - state.sessionStartTime);
+          childTime += sessionDuration;
+        }
+        return acc + childTime;
+      }, 0);
     } else { // item.type === 'task'
       displayedTime = (item as TimedTaskItem).elapsedTime;
     }
 
-    if (item.id === state.activeTaskId && item.type === 'task' && !state.editingTaskId) {
+    // This part is for the individual active task's display, not for parent groupings
+    // It should remain for individual task display, but not double-count for parents
+    // The logic for active task's real-time duration is now inside the grouping calculation
+    // So, this outer if block should only apply if it's an individual task being rendered,
+    // and not if it's a grouping.
+    if (!isGrouping && item.id === state.activeTaskId && item.type === 'task' && !state.editingTaskId) {
       const sessionDuration = Math.max(0, currentTime - state.sessionStartTime);
       displayedTime += sessionDuration;
     }
@@ -432,11 +456,18 @@ export default function HomePage() {
         {isGrouping ? (
           <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, item.id)}><MoreVertIcon /></IconButton>}>
             <ListItemText
-              primary={item.name}
-              primaryTypographyProps={{ fontWeight: 'bold', fontSize: '1.1rem' }}
-              sx={{ pl: isTopLevel ? 2 : level * 2 }}
+              primary={
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Typography component="span" variant="h6" sx={{ fontWeight: 'bold', fontSize: '1.1rem' }}>
+                    {item.name}
+                  </Typography>
+                  <Typography component="span" variant="body1" sx={{ fontFamily: 'monospace', ml: 1, color: 'text.secondary' }}>
+                    計 {formatMinutes(getTaskDisplayedTime(item, item.children))}
+                  </Typography>
+                </Box>
+              }
+              primaryTypographyProps={{ sx: { pl: isTopLevel ? 2 : level * 2 } }}
             />
-            <Box sx={{ minWidth: '80px', textAlign: 'right' }} />
           </ListItem>
         ) : (
           <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, item.id)}><MoreVertIcon /></IconButton>}>
@@ -502,11 +533,18 @@ export default function HomePage() {
         {isGrouping ? (
           <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, item.id)}><MoreVertIcon /></IconButton>}>
             <ListItemText
-              primary={item.name}
-              primaryTypographyProps={{ fontWeight: 'bold', fontSize: '1.1rem' }}
-              sx={{ pl: isTopLevel ? 2 : level * 2 }}
+              primary={
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Typography component="span" variant="h6" sx={{ fontWeight: 'bold', fontSize: '1.1rem' }}>
+                    {item.name}
+                  </Typography>
+                  <Typography component="span" variant="body1" sx={{ fontFamily: 'monospace', ml: 1, color: 'text.secondary' }}>
+                    計 {formatMinutes(getTaskDisplayedTime(item, item.children))}
+                  </Typography>
+                </Box>
+              }
+              primaryTypographyProps={{ sx: { pl: isTopLevel ? 2 : level * 2 } }}
             />
-            <Box sx={{ minWidth: '80px', textAlign: 'right' }} />
           </ListItem>
         ) : (
           <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, item.id)}><MoreVertIcon /></IconButton>}>
