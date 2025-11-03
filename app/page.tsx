@@ -278,9 +278,9 @@ const formatMinutes = (totalMilliseconds: number) => {
 };
 
 const pulse = keyframes`
-  0% { transform: scale(1.0); background-color: rgba(255, 255, 0, 0.2); }
-  50% { transform: scale(1.02); background-color: rgba(255, 255, 0, 0.4); }
-  100% { transform: scale(1.0); background-color: rgba(255, 255, 0, 0.2); }
+  0% { transform: scale(1.0); background-color: rgba(255, 255,0, 0.8); }
+  50% { transform: scale(1.02); background-color: rgba(255, 255, 0, 0.9); }
+  100% { transform: scale(1.0); background-color: rgba(255, 255, 0, 0.8); }
 `;
 
 // --- Component ---
@@ -614,10 +614,10 @@ export default function HomePage() {
 
   return (
     <Box>
-      <AppBar position="static"><Toolbar><Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography><IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm('現在記録中のタスクを停止しますか？')) dispatch({ type: 'STOP_ALL_TIMERS' }); }}><AccessTimeIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm(`新しい一日を開始しますか？
+      <AppBar position="fixed"><Toolbar><Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography><IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm('現在記録中のタスクを停止しますか？')) dispatch({ type: 'STOP_ALL_TIMERS' }); }}><AccessTimeIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm(`新しい一日を開始しますか？
 本日追加したタスクはリセットされます。`)) dispatch({ type: 'START_NEW_DAY' }); }}><RefreshIcon /></IconButton></Toolbar></AppBar>
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} tasks={state.tasks} dispatch={dispatch} />
-      <Container maxWidth="sm" sx={{ paddingTop: '80px' }}>
+      <Container maxWidth="sm" sx={{ paddingTop: '90px' }}>
         <Box sx={{ my: 2 }}>
           {/* 🚨 修正: 現在のタスク強調表示 (NOW hoge!!!) 🚨 */}
           <Paper 
@@ -631,7 +631,7 @@ export default function HomePage() {
                   transformOrigin: 'center',
                   cursor: isTimerActive ? 'pointer' : 'default',
                   position: 'fixed',
-                  top: 80, 
+                  top: 60, 
                   left: 0,
                   right: 0,
                   margin: 'auto',
