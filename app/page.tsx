@@ -21,6 +21,12 @@ import {
   MenuItem,
   Paper,
   keyframes, 
+  // 💡追加: 時間編集ダイアログに必要なコンポーネント
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  InputAdornment,
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -76,6 +82,7 @@ interface AppState {
   activeTaskId: number | null; 
   sessionStartTime: number;
   editingTaskId: number | null;
+  editingTimeId: number | null; // 💡新規追加
 }
 
 type AppAction =
@@ -94,7 +101,9 @@ type AppAction =
   | { type: 'ADD_GROUPING'; payload: string }
   | { type: 'DELETE_TASK'; payload: number } 
   | { type: 'IMPORT_TASKS_BATCH'; payload: { name: string; parentName: string | null }[] }
-  | { type: 'MOVE_UP'; payload: number }; // 🚨 新規追加: MOVE_UPアクション
+  | { type: 'MOVE_UP'; payload: number }
+  | { type: 'START_TIME_EDIT'; payload: number } // 💡新規追加
+  | { type: 'FINISH_TIME_EDIT'; payload: { id: number; newTimeMs: number } }; // 💡新規追加
 
 
 const initialState: AppState = {
@@ -102,6 +111,7 @@ const initialState: AppState = {
   activeTaskId: DEFAULT_ACTIVE_TASK_ID,
   sessionStartTime: Date.now(),
   editingTaskId: null,
+  editingTimeId: null, // 💡新規追加
 };
 
 const appReducer = (state: AppState, action: AppAction): AppState => {
@@ -109,11 +119,11 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
 
   switch (action.type) {
     case 'LOAD_STATE':
-      return { ...state, ...action.payload, editingTaskId: null };
+      return { ...state, ...action.payload, editingTaskId: null, editingTimeId: null }; // 💡修正: editingTimeIdもリセット
     case 'START_NEW_DAY':
       return { ...initialState, tasks: DEFAULT_INITIAL_TASKS, activeTaskId: DEFAULT_ACTIVE_TASK_ID, sessionStartTime: Date.now() };
     case 'SWITCH_TASK':
-      if (state.editingTaskId) return state;
+      if (state.editingTaskId || state.editingTimeId) return state; // 💡修正: 時間編集中はブロック
 
       const currentActiveTask = state.tasks.find(t => t.id === state.activeTaskId);
       const newActiveTask = state.tasks.find(t => t.id === action.payload.newTaskId);
@@ -134,7 +144,7 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
 
       return { ...state, tasks: tasksAfterSwitch, activeTaskId: action.payload.newTaskId, sessionStartTime: action.payload.switchTime };
     case 'START_EDIT':
-      return { ...state, editingTaskId: action.payload };
+      return { ...state, editingTaskId: action.payload, editingTimeId: null }; // 💡修正: 時間編集をリセット
     case 'UPDATE_TASK_NAME':
       return { ...state, editingTaskId: null, tasks: state.tasks.map(task => task.id === action.payload.id ? { ...task, name: action.payload.newName } : task) };
     case 'ADD_PLANNED_TASK':
@@ -145,6 +155,8 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       return { ...state, tasks: [...state.tasks, newSubTask] };
     case 'ADD_QUICK_TASK':
     case 'ADD_QUICK_SUB_TASK':
+      if (state.editingTimeId) return state; // 💡修正: 時間編集中はブロック
+
       const isSub = action.type === 'ADD_QUICK_SUB_TASK';
       const parentId = isSub ? action.payload.parentId : null;
       const namePrefix = isSub ? '臨時サブタスク' : '臨時タスク';
@@ -254,6 +266,24 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
         const newTasks = arrayMove(tasks, oldIndex, newIndex);
         return { ...state, tasks: newTasks };
     }
+    // 💡 [新規追加] 時間編集アクション 💡
+    case 'START_TIME_EDIT':
+      const taskToEditTime = state.tasks.find(t => t.id === action.payload);
+      if (taskToEditTime && taskToEditTime.type === 'task') {
+        return { ...state, editingTimeId: action.payload, editingTaskId: null };
+      }
+      return state;
+
+    case 'FINISH_TIME_EDIT':
+      return {
+        ...state,
+        editingTimeId: null,
+        tasks: state.tasks.map(task =>
+          task.id === action.payload.id && task.type === 'task'
+            ? { ...task, elapsedTime: action.payload.newTimeMs }
+            : task
+        ),
+      };
     // ----------------------------
     
     default:
@@ -286,6 +316,131 @@ const pulse = keyframes`
   100% { transform: scale(1.0); background-color: rgba(255, 255, 0, 0.8); }
 `;
 
+// 💡新規追加: 時間文字列をミリ秒に変換するヘルパー関数
+const parseTimeToMs = (timeString: string): number | null => {
+    // H:MM:SS または H:MM 形式を解析
+    const parts = timeString.split(':').map(p => p.trim());
+    
+    if (parts.length === 3) {
+        const hours = parseInt(parts[0], 10);
+        const minutes = parseInt(parts[1], 10);
+        const seconds = parseInt(parts[2], 10);
+
+        if (isNaN(hours) || isNaN(minutes) || isNaN(seconds) || hours < 0 || minutes < 0 || seconds < 0 || minutes > 59 || seconds > 59) {
+            return null;
+        }
+        return (hours * 3600 + minutes * 60 + seconds) * 1000;
+    } 
+    else if (parts.length === 2) {
+        const hours = parseInt(parts[0], 10);
+        const minutes = parseInt(parts[1], 10);
+        
+        if (isNaN(hours) || isNaN(minutes) || hours < 0 || minutes < 0 || minutes > 59) {
+            return null;
+        }
+        // H:MM と解釈 (秒は 00)
+        return (hours * 3600 + minutes * 60) * 1000;
+    }
+    
+    return null;
+};
+
+// --- 時間編集ダイアログコンポーネント (HomePage内で定義) ---
+
+interface TimeEditDialogProps {
+  open: boolean;
+  onClose: (initialTimeMs: number) => void;
+  task: TimedTaskItem | null;
+  onSave: (id: number, newTimeMs: number) => void;
+  initialTimeMs: number;
+}
+
+const TimeEditDialog: React.FC<TimeEditDialogProps> = ({ open, onClose, task, onSave, initialTimeMs }) => {
+    const [timeInput, setTimeInput] = useState('');
+    const [error, setError] = useState('');
+    
+    // ダイアログが開かれたとき、初期時間を H:MM:SS 形式で設定
+    useEffect(() => {
+        if (open && task) {
+            setTimeInput(formatTime(initialTimeMs));
+            setError('');
+        }
+    }, [open, task, initialTimeMs]);
+
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value.trim();
+        setTimeInput(value);
+        
+        if (!value) {
+            setError('時間を入力してください。');
+            return;
+        }
+        
+        const newTimeMs = parseTimeToMs(value);
+        
+        if (newTimeMs === null) {
+            setError('無効な時間形式です。H:MM:SS または H:MM 形式で入力してください。');
+        } else if (newTimeMs < 0) {
+            setError('時間はマイナスにできません。');
+        } else {
+            setError('');
+        }
+    };
+
+    const handleSave = () => {
+        if (!task || error) return;
+        
+        const newTimeMs = parseTimeToMs(timeInput);
+        if (newTimeMs !== null) {
+            onSave(task.id, newTimeMs);
+        } else {
+            setError('保存できません。正しい時間形式を確認してください。');
+        }
+    };
+
+    if (!task) return null;
+
+    return (
+        <Dialog open={open} onClose={() => onClose(initialTimeMs)} maxWidth="sm" fullWidth>
+            <DialogTitle>{task.name} の時間編集</DialogTitle>
+            <DialogContent>
+                <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                    経過時間を **H:MM:SS** (時間:分:秒) 形式で入力してください。
+                </Typography>
+                <TextField
+                    autoFocus
+                    margin="dense"
+                    id="time-edit-input"
+                    label="経過時間 (H:MM:SS / H:MM)"
+                    type="text"
+                    fullWidth
+                    variant="outlined"
+                    value={timeInput}
+                    onChange={handleChange}
+                    error={!!error}
+                    helperText={error || "例: 1:05:30 (1時間5分30秒) または 2:30 (2時間30分)"}
+                    InputProps={{
+                        startAdornment: (
+                            <InputAdornment position="start">
+                                <AccessTimeIcon />
+                            </InputAdornment>
+                        ),
+                    }}
+                />
+            </DialogContent>
+            <DialogActions>
+                <Button onClick={() => onClose(initialTimeMs)} color="inherit">
+                    キャンセル
+                </Button>
+                <Button onClick={handleSave} color="primary" variant="contained" disabled={!!error || !timeInput}>
+                    保存
+                </Button>
+            </DialogActions>
+        </Dialog>
+    );
+};
+
+
 // --- Component ---
 export default function HomePage() {
   const [state, dispatch] = useReducer(appReducer, initialState);
@@ -301,8 +456,10 @@ export default function HomePage() {
   const [expandedTimeButtonId, setExpandedTimeButtonId] = useState<number | null>(null);
   const [showActiveTaskDetails, setShowActiveTaskDetails] = useState(true);
 
-  // 🚨 D&D関連の未使用なセンサーを削除 (コードは簡略化)
-  // const sensors = useSensors(...) は削除
+  // 💡新規追加: 時間編集ダイアログで使用する一時的な入力値
+  const [editingTimeValue, setEditingTimeValue] = useState('');
+
+  // --- Effect & Persistence ---
 
   useEffect(() => {
     try {
@@ -356,38 +513,61 @@ export default function HomePage() {
     return () => clearInterval(timerId);
   }, [isLoaded]);
 
+
+  // --- Handlers ---
+
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, taskId: number) => { setMenuAnchorEl(event.currentTarget); setMenuTaskId(taskId); };
   const handleMenuClose = () => { setMenuAnchorEl(null); setMenuTaskId(null); };
+  
   const handleSwitchTask = (newTaskId: number) => {
     const hasChildren = state.tasks.some(t => t.parentId === newTaskId);
-    if (hasChildren || state.editingTaskId || state.activeTaskId === newTaskId) return;
+    if (hasChildren || state.editingTaskId || state.activeTaskId === newTaskId || state.editingTimeId) return; // 💡修正: 時間編集中はブロック
     dispatch({ type: 'SWITCH_TASK', payload: { newTaskId, switchTime: Date.now() } });
     setExpandedTimeButtonId(null);
   };
+  
   const handleAddPlannedTask = () => {
-    if (newTaskName.trim() !== '') {
+    if (newTaskName.trim() !== '' && !state.editingTimeId) { // 💡修正: 時間編集中はブロック
       dispatch({ type: 'ADD_PLANNED_TASK', payload: newTaskName });
       setNewTaskName('');
       setIsAdding(false);
     }
   };
+  
   const handleAddSubtask = (parentId: number, name: string) => {
-    if (name.trim() !== '') {
+    if (name.trim() !== '' && !state.editingTimeId) { // 💡修正: 時間編集中はブロック
       dispatch({ type: 'ADD_SUB_TASK', payload: { parentId, name } });
       setAddingSubtaskTo(null);
     }
   };
   
   const handleAddGrouping = () => {
-    if (newTaskName.trim() !== '') {
+    if (newTaskName.trim() !== '' && !state.editingTimeId) { // 💡修正: 時間編集中はブロック
       dispatch({ type: 'ADD_GROUPING', payload: newTaskName });
       setNewTaskName('');
       setIsAdding(false);
     }
   };
 
-  // D&D関連の不要な関数は削除（ここではMOVE_UPに置き換え）
-  // const handleDragEnd = (event: DragEndEvent) => { ... } は削除
+  // 💡新規追加: 時間編集の開始ハンドラ
+  const handleStartTimeEdit = (id: number) => {
+    dispatch({ type: 'START_TIME_EDIT', payload: id });
+    handleMenuClose();
+  };
+
+  // 💡新規追加: 時間編集の保存ハンドラ
+  const handleFinishTimeEdit = (id: number, newTimeMs: number) => {
+    dispatch({ type: 'FINISH_TIME_EDIT', payload: { id, newTimeMs } });
+  };
+  
+  // 💡新規追加: 時間編集のキャンセルハンドラ
+  const handleCloseTimeEdit = (initialTimeMs: number) => {
+    // キャンセル時は時間を変更せずに編集モードを終了
+    dispatch({ type: 'FINISH_TIME_EDIT', payload: { id: state.editingTimeId!, newTimeMs: initialTimeMs } });
+  };
+
+
+  // --- Data Computation ---
 
   const { taskTree, tasksById } = useMemo(() => {
     const tasksById = new Map(state.tasks.map(t => [t.id, { ...t, children: [] as (AppItem & { children: AppItem[] })[] }]));
@@ -410,10 +590,13 @@ export default function HomePage() {
     const isGrouping = item.type === 'grouping';
     let displayedTime = 0;
 
+    // 💡修正: 時間編集中はタイマーを加算しない
+    const isTimerRunning = !state.editingTaskId && state.editingTimeId === null; 
+
     if (isGrouping) {
       displayedTime = children.filter(child => child.type === 'task').reduce((acc, child) => {
         let childTime = (child as TimedTaskItem).elapsedTime;
-        if (child.id === state.activeTaskId && child.type === 'task' && !state.editingTaskId) {
+        if (child.id === state.activeTaskId && child.type === 'task' && isTimerRunning) {
           const sessionDuration = Math.max(0, currentTime - state.sessionStartTime);
           childTime += sessionDuration;
         }
@@ -423,7 +606,7 @@ export default function HomePage() {
       displayedTime = (item as TimedTaskItem).elapsedTime;
     }
 
-    if (!isGrouping && item.id === state.activeTaskId && item.type === 'task' && !state.editingTaskId) {
+    if (!isGrouping && item.id === state.activeTaskId && item.type === 'task' && isTimerRunning) {
       const sessionDuration = Math.max(0, currentTime - state.sessionStartTime);
       displayedTime += sessionDuration;
     }
@@ -438,12 +621,14 @@ export default function HomePage() {
   const activeTaskName = activeTask?.name || 'タスク停止中';
   const isTimerActive = activeTask?.type === 'task';
 
-  // 🚨 D&Dコンポーネントを削除し、renderTaskを元に戻す 🚨
+  // --- Task Rendering ---
+
   const renderTask = (item: AppItem & { children: AppItem[] }, level: number) => {
     const isTopLevel = item.parentId === null;
     const isGrouping = item.type === 'grouping';
     const canBeActive = item.type === 'task';
     const isExpanded = state.activeTaskId === item.id && expandedTimeButtonId === item.id;
+    const isDisabled = !!state.editingTimeId; // 💡新規追加: 時間編集中は無効化
 
     if (state.editingTaskId === item.id) {
       return <ListItem key={item.id} sx={{ pl: level * 4 }}><TextField defaultValue={item.name} variant="standard" fullWidth autoFocus onBlur={(e) => dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: item.id, newName: (e.target as HTMLInputElement).value } })} onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'UPDATE_TASK_NAME', payload: { id: item.id, newName: (e.target as HTMLInputElement).value } }); }} /></ListItem>;
@@ -463,7 +648,7 @@ export default function HomePage() {
     return isTopLevel ? (
       <Paper key={item.id} elevation={2} sx={{ mb: 2, p: 1 }}>
         {isGrouping ? (
-          <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, item.id)}><MoreVertIcon /></IconButton>}>
+          <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, item.id)} disabled={isDisabled}><MoreVertIcon /></IconButton>}>
             <ListItemText
               primary={
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -479,9 +664,9 @@ export default function HomePage() {
             />
           </ListItem>
         ) : (
-          <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, item.id)}><MoreVertIcon /></IconButton>}>
+          <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, item.id)} disabled={isDisabled}><MoreVertIcon /></IconButton>}>
             <ListItemButton
-              disabled={!canBeActive}
+              disabled={!canBeActive || isDisabled} // 💡修正: 時間編集中は無効化
               selected={canBeActive && item.id === state.activeTaskId}
               onClick={() => canBeActive && handleSwitchTask(item.id)}
               sx={{
@@ -500,10 +685,10 @@ export default function HomePage() {
               >
                 {isExpanded && (
                   <ButtonGroup size="small" variant="text" color="inherit" sx={{ mr: 1, minWidth: '180px' }}>
-                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: -300000 } })}}>-5m</Button>
-                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: -60000 } })}}>-1m</Button>
-                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: 60000 } })}}>+1m</Button>
-                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: 300000 } })}}>+5m</Button>
+                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: -300000 } })}} disabled={isDisabled}>-5m</Button>
+                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: -60000 } })}} disabled={isDisabled}>-1m</Button>
+                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: 60000 } })}} disabled={isDisabled}>+1m</Button>
+                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: 300000 } })}} disabled={isDisabled}>+5m</Button>
                   </ButtonGroup>
                 )}
                 <Box 
@@ -530,7 +715,7 @@ export default function HomePage() {
         )}
         {addingSubtaskTo === item.id && (
           <ListItem sx={{ pl: (level + 2) * 4 }}>
-            <TextField label="新しいサブタスク名" variant="standard" fullWidth autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubtask(item.id, (e.target as HTMLInputElement).value); }} />
+            <TextField label="新しいサブタスク名" variant="standard" fullWidth autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubtask(item.id, (e.target as HTMLInputElement).value); }} disabled={isDisabled} />
           </ListItem>
         )}
         {renderChildren}
@@ -538,7 +723,7 @@ export default function HomePage() {
     ) : (
       <Box key={item.id} sx={{ mb: 0 }}>
         {isGrouping ? (
-          <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, item.id)}><MoreVertIcon /></IconButton>}>
+          <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, item.id)} disabled={isDisabled}><MoreVertIcon /></IconButton>}>
             <ListItemText
               primary={
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -554,9 +739,9 @@ export default function HomePage() {
             />
           </ListItem>
         ) : (
-          <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, item.id)}><MoreVertIcon /></IconButton>}>
+          <ListItem disablePadding secondaryAction={<IconButton edge="end" onClick={(e) => handleMenuOpen(e, item.id)} disabled={isDisabled}><MoreVertIcon /></IconButton>}>
             <ListItemButton
-              disabled={!canBeActive}
+              disabled={!canBeActive || isDisabled} // 💡修正: 時間編集中は無効化
               selected={canBeActive && item.id === state.activeTaskId}
               onClick={() => canBeActive && handleSwitchTask(item.id)}
               sx={{
@@ -575,10 +760,10 @@ export default function HomePage() {
               >
                 {isExpanded && (
                   <ButtonGroup size="small" variant="text" color="inherit" sx={{ mr: 1, minWidth: '180px' }}>
-                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: -300000 } })}}>-5m</Button>
-                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: -60000 } })}}>-1m</Button>
-                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: 60000 } })}}>+1m</Button>
-                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: 300000 } })}}>+5m</Button>
+                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: -300000 } })}} disabled={isDisabled}>-5m</Button>
+                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: -60000 } })}} disabled={isDisabled}>-1m</Button>
+                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: 60000 } })}} disabled={isDisabled}>+1m</Button>
+                    <Button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'ADJUST_TIME', payload: { taskId: item.id, amount: 300000 } })}} disabled={isDisabled}>+5m</Button>
                   </ButtonGroup>
                 )}
                 <Box 
@@ -605,7 +790,7 @@ export default function HomePage() {
         )}
         {addingSubtaskTo === item.id && (
           <ListItem sx={{ pl: (level + 2) * 4 }}>
-            <TextField label="新しいサブタスク名" variant="standard" fullWidth autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubtask(item.id, (e.target as HTMLInputElement).value); }} />
+            <TextField label="新しいサブタスク名" variant="standard" fullWidth autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubtask(item.id, (e.target as HTMLInputElement).value); }} disabled={isDisabled} />
           </ListItem>
         )}
         {renderChildren}
@@ -614,11 +799,16 @@ export default function HomePage() {
   };
 
   const selectedMenuTask = state.tasks.find(t => t.id === menuTaskId);
+  
+  // 💡新規追加: 時間編集ダイアログ用のデータ
+  const taskToEditTime = state.tasks.find((t): t is TimedTaskItem => t.id === state.editingTimeId && t.type === 'task') || null;
+  const currentTaskTimeMs = taskToEditTime ? taskToEditTime.elapsedTime : 0;
+  
 
   return (
     <Box>
-      <AppBar position="fixed"><Toolbar><Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography><IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm('現在記録中のタスクを停止しますか？')) dispatch({ type: 'STOP_ALL_TIMERS' }); }}><AccessTimeIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm(`新しい一日を開始しますか？
-本日追加したタスクはリセットされます。`)) dispatch({ type: 'START_NEW_DAY' }); }}><RefreshIcon /></IconButton></Toolbar></AppBar>
+      <AppBar position="fixed"><Toolbar><Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography><IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm('現在記録中のタスクを停止しますか？')) dispatch({ type: 'STOP_ALL_TIMERS' }); }} disabled={!!state.editingTimeId}><AccessTimeIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm(`新しい一日を開始しますか？
+本日追加したタスクはリセットされます。`)) dispatch({ type: 'START_NEW_DAY' }); }} disabled={!!state.editingTimeId}><RefreshIcon /></IconButton></Toolbar></AppBar>
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} tasks={state.tasks} dispatch={dispatch} />
       <Container maxWidth="sm" sx={{ paddingTop: '150px' }}>
         <Box sx={{ my: 2 }}>
@@ -630,9 +820,10 @@ export default function HomePage() {
                   mb: 2, 
                   textAlign: 'center',
                   bgcolor: 'background.paper', 
-                  animation: isTimerActive ? `${pulse} 1.5s infinite` : 'none',
+                  // 💡修正: 時間編集中はアニメーションを停止
+                  animation: isTimerActive && !state.editingTimeId ? `${pulse} 1.5s infinite` : 'none',
                   transformOrigin: 'center',
-                  cursor: isTimerActive ? 'pointer' : 'default',
+                  cursor: isTimerActive && !state.editingTimeId ? 'pointer' : 'default',
                   position: 'fixed',
                   top: 60, 
                   left: 0,
@@ -642,7 +833,7 @@ export default function HomePage() {
                   maxWidth: (theme) => theme.breakpoints.values.sm,
                   zIndex: 1000, 
               }}
-              onClick={() => isTimerActive && setShowActiveTaskDetails(prev => !prev)} 
+              onClick={() => isTimerActive && !state.editingTimeId && setShowActiveTaskDetails(prev => !prev)} 
           >
               <Typography 
                   variant="h5" 
@@ -673,10 +864,10 @@ export default function HomePage() {
           </List>
           <Box sx={{ mt: 2, display: 'flex', alignItems: 'center' }}>
             {isAdding ? (
-              <TextField label="新しい親タスク名" variant="standard" fullWidth autoFocus value={newTaskName} onChange={(e) => setNewTaskName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddGrouping(); }} />
+              <TextField label="新しい親タスク名" variant="standard" fullWidth autoFocus value={newTaskName} onChange={(e) => setNewTaskName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAddGrouping(); }} disabled={!!state.editingTimeId} />
             ) : (
               <>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setIsAdding(true)}>親タスクを追加</Button>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setIsAdding(true)} disabled={!!state.editingTimeId}>親タスクを追加</Button>
               </>
             )}
           </Box>
@@ -691,16 +882,23 @@ export default function HomePage() {
                       dispatch({ type: 'MOVE_UP', payload: menuTaskId });
                   }
                   handleMenuClose();
-              }}>
+              }} disabled={!!state.editingTimeId}>
                   <Box component="span" sx={{ mr: 1, color: 'text.secondary', fontWeight: 'bold', fontSize: '1rem' }}>↑</Box> 上に移動
               </MenuItem>
+          ),
+          // --------------------------
+          // 💡新規追加: 時間編集メニュー項目
+          selectedMenuTask && selectedMenuTask.type === 'task' && (
+            <MenuItem key="edit-time" onClick={() => handleStartTimeEdit(menuTaskId!)} disabled={!!state.editingTimeId}>
+                <AccessTimeIcon sx={{ mr: 1 }} fontSize="small" />時間を編集 (入力)
+            </MenuItem>
           ),
           // --------------------------
           selectedMenuTask && selectedMenuTask.parentId === null && (
             <MenuItem key="add-subtask" onClick={() => { 
               if (menuTaskId !== null) setAddingSubtaskTo(menuTaskId); 
               handleMenuClose(); 
-            }}><AddCircleOutlineIcon sx={{ mr: 1 }} fontSize="small" />サブタスクを追加</MenuItem>
+            }} disabled={!!state.editingTimeId}><AddCircleOutlineIcon sx={{ mr: 1 }} fontSize="small" />サブタスクを追加</MenuItem>
           ),
           selectedMenuTask && selectedMenuTask.parentId === null && (
             <MenuItem key="add-quick-subtask" onClick={() => {
@@ -708,31 +906,39 @@ export default function HomePage() {
                 dispatch({ type: 'ADD_QUICK_SUB_TASK', payload: { parentId: menuTaskId, switchTime: Date.now() } });
               }
               handleMenuClose();
-            }}><BoltIcon sx={{ mr: 1 }} fontSize="small" />クイックサブタスク</MenuItem>
+            }} disabled={!!state.editingTimeId}><BoltIcon sx={{ mr: 1 }} fontSize="small" />クイックサブタスク</MenuItem>
           ),
-          // 🚨 エラー箇所 (538行目) 修正済み 🚨
           <MenuItem key="edit" onClick={() => { 
             if (menuTaskId !== null) { 
               dispatch({ type: 'START_EDIT', payload: menuTaskId });
             }
             handleMenuClose(); 
-          }}><EditIcon sx={{ mr: 1 }} fontSize="small" />名前を編集</MenuItem>,
+          }} disabled={!!state.editingTimeId}><EditIcon sx={{ mr: 1 }} fontSize="small" />名前を編集</MenuItem>,
           
           selectedMenuTask && selectedMenuTask.type === 'task' && (
             <MenuItem key="reset" onClick={() => { 
-              if (menuTaskId !== null) { // 🚨 修正済み (6)
+              if (menuTaskId !== null) { 
                 dispatch({ type: 'RESET_TIME', payload: menuTaskId });
               }
               handleMenuClose(); 
-            }}><AccessTimeIcon sx={{ mr: 1 }} fontSize="small" />時間をリセット</MenuItem>
+            }} disabled={!!state.editingTimeId}><AccessTimeIcon sx={{ mr: 1 }} fontSize="small" />時間をリセット</MenuItem>
           ),          
           <MenuItem key="delete" sx={{ color: 'error.main' }} onClick={() => { 
             if(menuTaskId !== null && window.confirm(`タスク「${selectedMenuTask?.name}」を削除しますか？`)) 
               dispatch({ type: 'DELETE_TASK', payload: menuTaskId }); 
             handleMenuClose(); 
-          }}><DeleteIcon sx={{ mr: 1 }} fontSize="small" />タスクを削除</MenuItem>,
+          }} disabled={!!state.editingTimeId}><DeleteIcon sx={{ mr: 1 }} fontSize="small" />タスクを削除</MenuItem>,
         ].filter(Boolean)}
       </Menu>
+
+      {/* 💡新規追加: 時間編集ダイアログのレンダリング */}
+      <TimeEditDialog
+          open={!!state.editingTimeId}
+          onClose={handleCloseTimeEdit}
+          task={taskToEditTime}
+          onSave={handleFinishTimeEdit}
+          initialTimeMs={currentTaskTimeMs} // 現在のタスクの経過時間を渡す
+      />
     </Box>
   );
 }
