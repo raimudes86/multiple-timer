@@ -269,6 +269,8 @@ export default function HomePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 🚨 修正: 時間調整ボタンの表示/非表示を制御する新しいステート
   const [expandedTimeButtonId, setExpandedTimeButtonId] = useState<number | null>(null);
+  // 🚨 新規追加: アクティブタスク詳細表示のトグル
+  const [showActiveTaskDetails, setShowActiveTaskDetails] = useState(false);
 
   useEffect(() => {
     try {
@@ -575,7 +577,7 @@ export default function HomePage() {
       <AppBar position="static"><Toolbar><Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography><IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm('現在記録中のタスクを停止しますか？')) dispatch({ type: 'STOP_ALL_TIMERS' }); }}><AccessTimeIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm(`新しい一日を開始しますか？
 本日追加したタスクはリセットされます。`)) dispatch({ type: 'START_NEW_DAY' }); }}><RefreshIcon /></IconButton></Toolbar></AppBar>
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} tasks={state.tasks} dispatch={dispatch} />
-      <Container maxWidth="sm">
+      <Container maxWidth="sm" sx={{ paddingTop: '190px' }}> {/* Adjusted paddingTop */}
         <Box sx={{ my: 2 }}>
           {/* 🚨 修正: 現在のタスク強調表示 (NOW hoge!!!) 🚨 */}
           <Paper 
@@ -584,10 +586,20 @@ export default function HomePage() {
                   p: 1, 
                   mb: 2, 
                   textAlign: 'center',
-                  bgcolor: isTimerActive ? 'warning.light' : 'grey.300',
+                  bgcolor: 'background.paper', // Changed to ensure opacity and theme consistency
                   animation: isTimerActive ? `${pulse} 1.5s infinite` : 'none',
                   transformOrigin: 'center',
+                  cursor: isTimerActive ? 'pointer' : 'default',
+                  position: 'fixed',
+                  top: 80, // Changed: 64 (AppBar) + 16 (spacing)
+                  left: 0,
+                  right: 0,
+                  margin: 'auto',
+                  width: '100%',
+                  maxWidth: (theme) => theme.breakpoints.values.sm,
+                  zIndex: 1000, // Ensure it's above other content
               }}
+              onClick={() => isTimerActive && setShowActiveTaskDetails(prev => !prev)} // Only clickable if timer is active
           >
               <Typography 
                   variant="h5" 
@@ -600,6 +612,16 @@ export default function HomePage() {
               >
                   {isTimerActive ? `「${activeTaskName}」 進行中` : 'タイマー停止中'}
               </Typography>
+              {isTimerActive && showActiveTaskDetails && (
+                  <Box sx={{ mt: 1 }}>
+                      <Typography variant="body2" color="textSecondary">
+                          開始: {new Date(state.sessionStartTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </Typography>
+                      <Typography variant="body2" color="textSecondary">
+                          継続時間: {formatTime(currentTime - state.sessionStartTime)}
+                      </Typography>
+                  </Box>
+              )}
           </Paper>
           {/* ------------------------------------------- */}
           
