@@ -43,11 +43,14 @@ const arrayMove = (array: any[], from: number, to: number) => {
 // --- State, Actions, and Reducer ---
 
 const DEFAULT_INITIAL_TASKS: AppItem[] = [
-    { id: 1, name: '毎日行うこと', type: 'grouping', parentId: null },
-    { id: 2, name: '朝・夕会関連', type: 'task', elapsedTime: 0, parentId: 1 },
-    { id: 3, name: '休憩', type: 'task', elapsedTime: 0, parentId: 1 },
-    { id: 4, name: '質問対応', type: 'task', elapsedTime: 0, parentId: 1 },
-    { id: 5, name: '未分類', type: 'task', elapsedTime: 0, parentId: 1 },
+    { id: 1, name: '生活', type: 'grouping', parentId: null },
+    { id: 2, name: '睡眠', type: 'task', elapsedTime: 0, parentId: 1 },
+    { id: 3, name: '朝・夜・移動', type: 'task', elapsedTime: 0, parentId: 1 },
+    { id: 4, name: '読書', type: 'task', elapsedTime: 0, parentId: 1 },
+    { id: 5, name: 'デイリータスク', type: 'grouping', parentId: null },
+    { id: 6, name: '朝・夕会関連', type: 'task', elapsedTime: 0, parentId: 5 },
+    { id: 7, name: '休憩', type: 'task', elapsedTime: 0, parentId: 5 },
+    { id: 8, name: '質問対応', type: 'task', elapsedTime: 0, parentId: 5 },
 ];
 const DEFAULT_ACTIVE_TASK_ID = 2; 
 
@@ -296,7 +299,7 @@ export default function HomePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   
   const [expandedTimeButtonId, setExpandedTimeButtonId] = useState<number | null>(null);
-  const [showActiveTaskDetails, setShowActiveTaskDetails] = useState(false);
+  const [showActiveTaskDetails, setShowActiveTaskDetails] = useState(true);
 
   // 🚨 D&D関連の未使用なセンサーを削除 (コードは簡略化)
   // const sensors = useSensors(...) は削除
@@ -617,7 +620,7 @@ export default function HomePage() {
       <AppBar position="fixed"><Toolbar><Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography><IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm('現在記録中のタスクを停止しますか？')) dispatch({ type: 'STOP_ALL_TIMERS' }); }}><AccessTimeIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm(`新しい一日を開始しますか？
 本日追加したタスクはリセットされます。`)) dispatch({ type: 'START_NEW_DAY' }); }}><RefreshIcon /></IconButton></Toolbar></AppBar>
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} tasks={state.tasks} dispatch={dispatch} />
-      <Container maxWidth="sm" sx={{ paddingTop: '90px' }}>
+      <Container maxWidth="sm" sx={{ paddingTop: '150px' }}>
         <Box sx={{ my: 2 }}>
           {/* 🚨 修正: 現在のタスク強調表示 (NOW hoge!!!) 🚨 */}
           <Paper 
