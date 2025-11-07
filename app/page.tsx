@@ -21,12 +21,12 @@ import {
   MenuItem,
   Paper,
   keyframes, 
-  // 💡追加: 時間編集ダイアログに必要なコンポーネント
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   InputAdornment,
+  TextareaAutosize,
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -37,7 +37,9 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import SettingsDialog from './components/SettingsDialog';
+
 // D&Dユーティリティのみインポート (SortableContextなどは削除)
 // 🚨 [新規追加] arrayMove ユーティリティの定義 🚨
 const arrayMove = (array: any[], from: number, to: number) => {
@@ -49,11 +51,11 @@ const arrayMove = (array: any[], from: number, to: number) => {
 // --- State, Actions, and Reducer ---
 
 const DEFAULT_INITIAL_TASKS: AppItem[] = [
-    { id: 1, name: 'デイリータスク', type: 'grouping', parentId: null },
+    { id: 1, name: 'デイリー', type: 'grouping', parentId: null },
     { id: 2, name: '朝・夕会関連', type: 'task', elapsedTime: 0, parentId: 1 },
     { id: 3, name: '休憩', type: 'task', elapsedTime: 0, parentId: 1 },
     { id: 4, name: '質問対応', type: 'task', elapsedTime: 0, parentId: 1 },
-    { id: 5, name: '読書', type: 'task', elapsedTime: 0, parentId: 1 },
+    { id: 5, name: '読書・学習', type: 'task', elapsedTime: 0, parentId: 1 },
 ];
 const DEFAULT_ACTIVE_TASK_ID = 2; 
 
@@ -437,6 +439,55 @@ const TimeEditDialog: React.FC<TimeEditDialogProps> = ({ open, onClose, task, on
     );
 };
 
+// --- Export Dialog Component ---
+interface ExportDialogProps {
+  open: boolean;
+  onClose: () => void;
+  exportText: string;
+}
+
+const ExportDialog: React.FC<ExportDialogProps> = ({ open, onClose, exportText }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(exportText).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000); // Reset after 2 seconds
+    }).catch(err => {
+      console.error('Failed to copy text: ', err);
+    });
+  };
+
+  useEffect(() => {
+    if (open) {
+      setCopied(false);
+    }
+  }, [open]);
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>今日の結果をエクスポート</DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+          以下のテキストをコピーして、他のアプリケーションに貼り付けることができます。
+        </Typography>
+        <TextareaAutosize
+          readOnly
+          value={exportText}
+          minRows={10}
+          style={{ width: '100%', padding: '8px', fontFamily: 'monospace', border: '1px solid #ccc', borderRadius: '4px', whiteSpace: 'pre-wrap' }}
+        />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={handleCopy} color="primary" variant="contained" startIcon={<ContentCopyIcon />}>
+          {copied ? 'コピーしました！' : 'クリップボードにコピー'}
+        </Button>
+        <Button onClick={onClose} color="inherit">閉じる</Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
 
 // --- Component ---
 export default function HomePage() {
@@ -449,6 +500,8 @@ export default function HomePage() {
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [menuTaskId, setMenuTaskId] = useState<null | number>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportText, setExportText] = useState('');
   
   const [expandedTimeButtonId, setExpandedTimeButtonId] = useState<number | null>(null);
   const [showActiveTaskDetails, setShowActiveTaskDetails] = useState(true);
@@ -561,6 +614,44 @@ export default function HomePage() {
   const handleCloseTimeEdit = (initialTimeMs: number) => {
     // キャンセル時は時間を変更せずに編集モードを終了
     dispatch({ type: 'FINISH_TIME_EDIT', payload: { id: state.editingTimeId!, newTimeMs: initialTimeMs } });
+  };
+
+  const handleExport = () => {
+    let totalMilliseconds = 0;
+    const reportParts: string[] = [];
+
+    const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    reportParts.push(`# ${today}`);
+
+    taskTree.forEach(item => {
+      const itemTime = getTaskDisplayedTime(item, item.children);
+
+      if (item.type === 'grouping') {
+        totalMilliseconds += itemTime;
+        reportParts.push(`## ${item.name} (合計: ${formatMinutes(itemTime)})`);
+        
+        item.children.forEach(child => {
+          if (child.type === 'task') {
+            const childTime = getTaskDisplayedTime(child, []);
+            reportParts.push(`- ${child.name}: ${formatMinutes(childTime)}`);
+          }
+        });
+        reportParts.push('');
+      } else { // Top-level task
+        const taskTime = getTaskDisplayedTime(item, []);
+        totalMilliseconds += taskTime;
+        reportParts.push(`- ${item.name}: ${formatMinutes(taskTime)}`);
+      }
+    });
+    
+    if (taskTree.some(t => t.type === 'grouping') && taskTree.length > 1) {
+        reportParts.push('---');
+        reportParts.push(`**総合計: ${formatMinutes(totalMilliseconds)}**`);
+    }
+
+    setExportText(reportParts.join('\n'));
+    setExportDialogOpen(true);
+    setSettingsOpen(false); // Close settings dialog
   };
 
 
@@ -804,9 +895,8 @@ export default function HomePage() {
 
   return (
     <Box>
-      <AppBar position="fixed"><Toolbar><Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography><IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm('現在記録中のタスクを停止しますか？')) dispatch({ type: 'STOP_ALL_TIMERS' }); }} disabled={!!state.editingTimeId}><AccessTimeIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm(`新しい一日を開始しますか？
-本日追加したタスクはリセットされます。`)) dispatch({ type: 'START_NEW_DAY' }); }} disabled={!!state.editingTimeId}><RefreshIcon /></IconButton></Toolbar></AppBar>
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} tasks={state.tasks} dispatch={dispatch} />
+      <AppBar position="fixed"><Toolbar><Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>Time Logger</Typography><IconButton color="inherit" onClick={() => setSettingsOpen(true)}><SettingsIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm('現在記録中のタスクを停止しますか？')) dispatch({ type: 'STOP_ALL_TIMERS' }); }} disabled={!!state.editingTimeId}><AccessTimeIcon /></IconButton><IconButton color="inherit" onClick={() => { if (window.confirm(`新しい一日を開始しますか？\n本日追加したタスクはリセットされます。`)) dispatch({ type: 'START_NEW_DAY' }); }} disabled={!!state.editingTimeId}><RefreshIcon /></IconButton></Toolbar></AppBar>
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} tasks={state.tasks} dispatch={dispatch} onExport={handleExport} />
       <Container maxWidth="sm" sx={{ paddingTop: '150px' }}>
         <Box sx={{ my: 2 }}>
           {/* 🚨 修正: 現在のタスク強調表示 (NOW hoge!!!) 🚨 */}
@@ -935,6 +1025,13 @@ export default function HomePage() {
           task={taskToEditTime}
           onSave={handleFinishTimeEdit}
           initialTimeMs={currentTaskTimeMs} // 現在のタスクの経過時間を渡す
+      />
+
+      {/* 💡新規追加: エクスポートダイアログのレンダリング */}
+      <ExportDialog
+          open={exportDialogOpen}
+          onClose={() => setExportDialogOpen(false)}
+          exportText={exportText}
       />
     </Box>
   );

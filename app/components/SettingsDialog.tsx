@@ -16,9 +16,7 @@ import {
   Divider,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import AddIcon from '@mui/icons-material/Add';
+import IosShareIcon from '@mui/icons-material/IosShare';
 
 // 型定義をpage.tsxから受け取る想定
 interface BaseItem {
@@ -43,9 +41,10 @@ interface SettingsDialogProps {
   onClose: () => void;
   tasks: AppItem[];
   dispatch: (action: any) => void;
+  onExport: () => void;
 }
 
-export default function SettingsDialog({ open, onClose, tasks, dispatch }: SettingsDialogProps) {
+export default function SettingsDialog({ open, onClose, tasks, dispatch, onExport }: SettingsDialogProps) {
   const [importText, setImportText] = useState('');
 
   const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
@@ -103,7 +102,6 @@ export default function SettingsDialog({ open, onClose, tasks, dispatch }: Setti
         } else if (isChildCandidate && currentParentName !== null) {
           tasksToImport.push({ name: taskName, parentName: currentParentName });
         }
-        // If it's a child candidate but no parent is set, it's ignored (or could be added as top-level, but user implies parent-child structure)
       }
     });
 
@@ -137,12 +135,24 @@ export default function SettingsDialog({ open, onClose, tasks, dispatch }: Setti
           fullWidth
           value={importText}
           onPaste={handlePaste}
-          onChange={(e) => setImportText(e.target.value)} // この行を追加
+          onChange={(e) => setImportText(e.target.value)}
           variant="outlined"
           sx={{ mt: 2, "& .MuiInputBase-input": { whiteSpace: "pre-wrap" } }}
         />
         <Button variant="contained" onClick={handleImport} sx={{ mt: 2 }}>
           インポート実行
+        </Button>
+      </Box>
+
+      <Divider sx={{ my: 4 }} />
+
+      <Box sx={{ p: 2 }}>
+        <Typography variant="h6" gutterBottom>結果をエクスポート</Typography>
+        <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+          今日記録したすべてのタスクと時間をテキスト形式で出力します。
+        </Typography>
+        <Button variant="contained" color="secondary" onClick={onExport} startIcon={<IosShareIcon />}>
+          今日の結果をエクスポート
         </Button>
       </Box>
     </Dialog>
