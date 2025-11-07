@@ -49,14 +49,11 @@ const arrayMove = (array: any[], from: number, to: number) => {
 // --- State, Actions, and Reducer ---
 
 const DEFAULT_INITIAL_TASKS: AppItem[] = [
-    { id: 1, name: '生活', type: 'grouping', parentId: null },
-    { id: 2, name: '睡眠', type: 'task', elapsedTime: 0, parentId: 1 },
-    { id: 3, name: '朝・夜・移動', type: 'task', elapsedTime: 0, parentId: 1 },
-    { id: 4, name: '読書', type: 'task', elapsedTime: 0, parentId: 1 },
-    { id: 5, name: 'デイリータスク', type: 'grouping', parentId: null },
-    { id: 6, name: '朝・夕会関連', type: 'task', elapsedTime: 0, parentId: 5 },
-    { id: 7, name: '休憩', type: 'task', elapsedTime: 0, parentId: 5 },
-    { id: 8, name: '質問対応', type: 'task', elapsedTime: 0, parentId: 5 },
+    { id: 1, name: 'デイリータスク', type: 'grouping', parentId: null },
+    { id: 2, name: '朝・夕会関連', type: 'task', elapsedTime: 0, parentId: 1 },
+    { id: 3, name: '休憩', type: 'task', elapsedTime: 0, parentId: 1 },
+    { id: 4, name: '質問対応', type: 'task', elapsedTime: 0, parentId: 1 },
+    { id: 5, name: '読書', type: 'task', elapsedTime: 0, parentId: 1 },
 ];
 const DEFAULT_ACTIVE_TASK_ID = 2; 
 

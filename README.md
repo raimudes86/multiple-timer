@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Time Logger Application
 
-## Getting Started
+これは、日々のタスクにかかる時間を記録、管理、分析するための多機能なタイムトラッキング・アプリケーションです。Next.jsとMaterial-UIを使用して構築されています。
 
-First, run the development server:
+## 主な機能
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+このアプリケーションは、効率的な時間管理をサポートするための豊富な機能を備えています。
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- **タスクの階層管理**:
+  - タスクを「親タスク（グループ）」と「サブタスク」に分けて整理できます。
+  - プロジェクトやカテゴリごとに時間をまとめて管理するのに便利です。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **リアルタイム時間計測**:
+  - ボタンをクリックするだけで、選択したタスクの時間を計測開始・切り替えができます。
+  - 現在進行中のタスクはハイライトされ、一目でわかります。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **柔軟な時間編集機能**:
+  - **手動調整**: `+5m`, `+1m`, `-1m`, `-5m` のボタンで、時間を微調整できます。
+  - **直接編集**: `H:MM:SS`形式で経過時間を直接入力し、修正することが可能です。
+  - **リセット**: 特定のタスクの時間をゼロにリセットできます。
 
-## Learn More
+- **タスク管理操作**:
+  - **CRUD**: タスクの追加、名前の編集、削除が直感的に行えます。
+  - **クイックタスク**: 事前に計画していないタスクも「臨時タスク」として素早く追加し、すぐに計測を開始できます。
+  - **順序変更**: タスクの表示順を並べ替えることができます。
 
-To learn more about Next.js, take a look at the following resources:
+- **データの永続化**:
+  - タスクリストや記録した時間は、ブラウザのローカルストレージに自動で保存されます。次回開いたときも同じ状態から再開できます。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **セッション管理**:
+  - 「新しい一日を開始」機能で、タスクリストを初期状態に戻し、新しい一日の記録を始められます。
+  - すべてのタイマーを一度に停止する機能もあります。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 技術スタック
 
-## Deploy on Vercel
+- [Next.js](https://nextjs.org/) - Reactフレームワーク
+- [Material-UI (MUI)](https://mui.com/) - UIコンポーネントライブラリ
+- [TypeScript](https://www.typescriptlang.org/)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## セットアップと実行方法
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1.  **依存関係のインストール**:
+    ```bash
+    npm install
+    ```
+
+2.  **開発サーバーの起動**:
+    ```bash
+    npm run dev
+    ```
+
+3.  **ブラウザで開く**:
+    [http://localhost:3000](http://localhost:3000) にアクセスしてください。
+
+## 使用方法
+
+- **親タスクの追加**: 画面下部の「親タスクを追加」ボタンから新しいタスクグループを作成します。
+- **サブタスクの追加**: 親タスクのメニュー（︙）から「サブタスクを追加」を選択します。
+- **時間計測の開始/切り替え**: 計測したいタスクをクリックします。
+- **時間の編集**:
+  - **微調整**: アクティブなタスクの時間表示の横にあるボタンで行います。
+  - **直接入力**: タスクのメニューから「時間を編集（入力）」を選択します。
+- **タスクの編集/削除**: 各タスクの右側にあるメニュー（︙）から操作を選択します。
